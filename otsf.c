@@ -27,9 +27,63 @@ void print_usage(FILE *outstream, char *progname)
 }
 
 // Identify and print out TAL effector binding sites
-void find_binding_sites(kseq_t *seq, Array *rvdseq, int forwardonly, FILE *outstream)
+void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, double cutoff, int forwardonly, FILE *outstream)
 {
-  
+  int i, j;
+
+  if(array_size(rvdseq) > seq->seq.l)
+  {
+    fprintf(stderr, "Warning: skipping sequence '%s' since it is shorter than the RVD sequence\n", seq->seq.s);
+    return;
+  }
+
+  for(i = 1; i <= seq->seq.l - array_size(rvdseq); i++)
+  {
+    if(seq->seq.s[i-1] == 'T' || seq->seq.s[i-1] == 't')
+    {
+      double cumscore = 0.0;
+      for(j = 0; j < array_size(rvdseq); j++)
+      {
+        char *rvd = array_get(rvdseq, j);
+        double *scores = hashmap_get(diresidue_scores, rvd);
+        switch(seq->seq.s[i+j])
+        {
+          case 'A':
+            cumscore += scores[0];
+            break;
+          case 'a':
+            cumscore += scores[0];
+            break;
+          case 'C':
+            cumscore += scores[1];
+            break;
+          case 'c':
+            cumscore += scores[1];
+            break;
+          case 'G':
+            cumscore += scores[2];
+            break;
+          case 'g':
+            cumscore += scores[2];
+            break;
+          case 'T':
+            cumscore += scores[3];
+            break;
+          case 't':
+            cumscore += scores[3];
+            break;
+        }
+
+        if(cumscore > cutoff)
+          break;
+      }
+
+      if(cumscore <= cutoff)
+      {
+        fprintf(outstream, "%s:%u\n", seq->name.s, i);
+      }
+    }
+  }
 }
 
 // Allocate memory for an array of 4 doubles
@@ -303,8 +357,8 @@ int main(int argc, char **argv)
   seq = kseq_init(seqfile);
   while((i = kseq_read(seq)) >= 0)
   {
-    printf("Found seq '%s'\n", seq->name.s);
-    find_binding_sites(seq, rvdseq, forwardonly, outstream);
+    printf("Found seq '%s', length %ld\n", seq->name.s, seq->seq.l);
+    find_binding_sites(seq, rvdseq, diresidue_scores, best_score * x, forwardonly, outstream);
   }
   kseq_destroy(seq);
   gzclose(seqfile);
