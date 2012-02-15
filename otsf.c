@@ -46,33 +46,17 @@ void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, d
       {
         char *rvd = array_get(rvdseq, j);
         double *scores = hashmap_get(diresidue_scores, rvd);
-        switch(seq->seq.s[i+j])
-        {
-          case 'A':
-            cumscore += scores[0];
-            break;
-          case 'a':
-            cumscore += scores[0];
-            break;
-          case 'C':
-            cumscore += scores[1];
-            break;
-          case 'c':
-            cumscore += scores[1];
-            break;
-          case 'G':
-            cumscore += scores[2];
-            break;
-          case 'g':
-            cumscore += scores[2];
-            break;
-          case 'T':
-            cumscore += scores[3];
-            break;
-          case 't':
-            cumscore += scores[3];
-            break;
-        }
+
+        if(seq->seq.s[i+j] == 'A' || seq->seq.s[i+j] == 'a')
+          cumscore += scores[0];
+        else if(seq->seq.s[i+j] == 'C' || seq->seq.s[i+j] == 'c')
+          cumscore += scores[1];
+        else if(seq->seq.s[i+j] == 'G' || seq->seq.s[i+j] == 'g')
+          cumscore += scores[2];
+        else if(seq->seq.s[i+j] == 'T' || seq->seq.s[i+j] == 't')
+          cumscore += scores[3];
+        else
+          break;
 
         if(cumscore > cutoff)
           break;
