@@ -325,10 +325,10 @@ int main(int argc, char **argv)
 
   // Program variable domain
   Array *rvdseq;
-  char *tok;
+  char *tok, cmd[256], line[32];
   gzFile seqfile;
   kseq_t *seq;
-  int i;
+  int i, seqnum;
 
   // Set option defaults
   forwardonly = 0;
@@ -437,12 +437,24 @@ int main(int argc, char **argv)
     return 1;
   }
 
+  // Determine number of sequences in file
+  sprintf(cmd, "grep '^>' %s | wc -l", seqfilename);
+  FILE *in = popen(cmd, "r");
+  if(!in)
+  {
+    perror("Error: unable to check fasta file size\n");
+    return 1;
+  }
+  fgets(line, sizeof(line), in);
+  pclose(in);
+  seqnum = atoi(line);
+
   // Process
   fprintf(outstream, "##gff-version 3\n");
   seq = kseq_init(seqfile);
   while((i = kseq_read(seq)) >= 0)
   {
-    fprintf(stderr, "  Processing sequence '%s' (length %d)\n", seq->name.s, seq->seq.l);
+    fprintf(stderr, "  Processing sequence '%s' (length %ld)\n", seq->name.s, seq->seq.l);
     find_binding_sites(seq, rvdseq, diresidue_scores, best_score * x, sourcestr, forwardonly, outstream);
   }
   kseq_destroy(seq);
