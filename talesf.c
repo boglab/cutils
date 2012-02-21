@@ -1,12 +1,11 @@
 /*
-Copyright (c) 2011-2012, Daniel S. Standage <daniel.standage@gmail.com> and
-Erin Doyle <edoyle@iastate.edu>
 
-See README for license details.
+Copyright (c) 2011-2012, Daniel S. Standage <daniel.standage@gmail.com> and
+Erin Doyle <edoyle@iastate.edu>. See README for license details.
 
 For compiling, try this.
 
-gcc -Wall -O3 -o talesf *.c -lz -lm
+    gcc -Wall -O3 -o talesf *.c -lz -lm
 
 */
 
@@ -30,6 +29,7 @@ typedef struct
   kseq_t *seq;
   Array *rvdseq;
   char *rvdstring;
+  char *sourcestr;
   unsigned long index;
   double score;
 } BindingSite;
@@ -67,7 +67,7 @@ void binding_site_print(BindingSite *site, FILE *outstream)
   }
 
   fprintf( outstream, "%s\t%s\t%s\t%lu\t%lu\t%.2lf\t%c\t.\trvd_sequence=%s;target_sequence=%s;\n",
-           site->seq->name.s, "OTSFdb", "TAL_effector_binding_site", site->index + 1,
+           site->seq->name.s, site->sourcestr, "TAL_effector_binding_site", site->index + 1,
            site->index + num_rvds, site->score, strand, site->rvdstring, sequence);
   free(sequence);
 }
@@ -81,13 +81,15 @@ void print_usage(FILE *outstream, char *progname)
            "    -h|--help             print this help message and exit\n"
            "    -o|--outfile          file to which output will be written; default is terminal\n"
            "                          (STDOUT)\n"
-           "    -w|--weight           user-defined weight; default it 0.9\n"
+           "    -s|--source           text for the third column of the GFF3 output; default is\n"
+           "                          TALESF\n"
+           "    -w|--weight           user-defined weight; default is 0.9\n"
            "    -x|--cutoffmult       multiple of best score at which potential sites will be\n"
            "                          filtered\n\n", progname );
 }
 
 // Identify and print out TAL effector binding sites
-void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, double cutoff, int forwardonly, FILE *outstream)
+void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, double cutoff, char *sourcestr, int forwardonly, FILE *outstream)
 {
   unsigned long i, j;
   char *rvdstring;
@@ -136,8 +138,7 @@ void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, d
 
       if(cumscore <= cutoff)
       {
-        //fprintf(outstream, "%s:%lu\n", seq->name.s, i);
-        BindingSite site = { 1, seq, rvdseq, rvdstring, i, cumscore };
+        BindingSite site = { 1, seq, rvdseq, rvdstring, sourcestr, i, cumscore };
         binding_site_print(&site, outstream);
       }
     }
@@ -169,7 +170,7 @@ void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, d
 
         if(cumscore <= cutoff)
         {
-          BindingSite site = { -1, seq, rvdseq, rvdstring, i-1, cumscore };
+          BindingSite site = { -1, seq, rvdseq, rvdstring, sourcestr, i-1, cumscore };
           binding_site_print(&site, outstream);
         }
       }
@@ -302,23 +303,11 @@ double get_best_score(Array *rvdseq, Hashmap *rvdscores)
     if(scores == NULL)
       return -1.0;
 
-    /*
-    fprintf(stderr, "scores = [");
-    for(j = 0; j < 4; j++)
-    {
-      if(j > 0)
-        fprintf(stderr, ", ");
-      fprintf(stderr, "%.4lf", scores[j]);
-    }
-    fprintf(stderr, "], ");
-    */
-
     for(j = 0; j < 4; j++)
     {
       if(j == 0 || scores[j] < min_score)
         min_score = scores[j];
     }
-    //fprintf(stderr, "min score %d (%s): %.4lf\n", i, rvd, min_score);
     best_score += min_score;
   }
 
@@ -329,7 +318,7 @@ double get_best_score(Array *rvdseq, Hashmap *rvdscores)
 int main(int argc, char **argv)
 {
   // Program arguments and options
-  char *progname, *seqfilename, *rvdstring;
+  char *progname, *seqfilename, *rvdstring, sourcestr[128];
   int forwardonly;
   FILE *outstream;
   double w, x;
@@ -344,18 +333,20 @@ int main(int argc, char **argv)
   // Set option defaults
   forwardonly = 0;
   outstream = stdout;
+  strcpy(sourcestr, "TALESF");
   w = 0.9;
   x = 3.0;
 
   // Parse options
   progname = argv[0];
   int opt, optindex;
-  const char *optstr = "fho:w:x:";
+  const char *optstr = "fho:s:w:x:";
   const struct option otsf_options[] =
   {
     { "forwardonly", no_argument, NULL, 'f' },
     { "help", no_argument, NULL, 'h' },
     { "outfile", required_argument, NULL, 'o' },
+    { "source", required_argument, NULL, 's' },
     { "weight", required_argument, NULL, 'w' },
     { "cutoffmult", required_argument, NULL, 'x' },
     { NULL, no_argument, NULL, 0 },
@@ -383,22 +374,26 @@ int main(int argc, char **argv)
           return 1;
         }
         break;
+      
+      case 's':
+        strcpy(sourcestr, optarg);
+        break;
 
-       case 'w':
-         if( sscanf(optarg, "%lf", &w) == EOF )
-         {
-           fprintf(stderr, "Error: unable to convert weight '%s' to a double\n", optarg);
-           return 1;
-         }
-         break;
+     case 'w':
+       if( sscanf(optarg, "%lf", &w) == EOF )
+       {
+         fprintf(stderr, "Error: unable to convert weight '%s' to a double\n", optarg);
+         return 1;
+       }
+       break;
 
-       case 'x':
-         if( sscanf(optarg, "%lf", &x) == EOF )
-         {
-           fprintf(stderr, "Error: unable to convert cutoff multiple '%s' to a double\n", optarg);
-           return 1;
-         }
-         break;
+     case 'x':
+       if( sscanf(optarg, "%lf", &x) == EOF )
+       {
+         fprintf(stderr, "Error: unable to convert cutoff multiple '%s' to a double\n", optarg);
+         return 1;
+       }
+       break;
     }
   }
 
@@ -411,7 +406,10 @@ int main(int argc, char **argv)
   }
   seqfilename = argv[optind];
   rvdstring = argv[optind + 1];
-  fprintf(stderr, "Using: seqfile='%s', RDVseq='%s'\n", seqfilename, rvdstring);
+
+  // Print verbose output
+  fprintf(stderr, "\n%-20s '%s'\n", "Sequence data:", seqfilename);
+  fprintf(stderr, "%-20s '%s'\n", "RVD sequence:", rvdstring);
 
   rvdseq = array_new( sizeof(char *) );
   tok = strtok(rvdstring, " ");
@@ -421,13 +419,6 @@ int main(int argc, char **argv)
     array_add(rvdseq, r);
     tok = strtok(NULL, " ");
   }
-  fprintf(stderr, "RVD seq:");
-  for(i = 0; i < array_size(rvdseq); i++)
-  {
-    char *temp = (char *)array_get(rvdseq, i);
-    fprintf(stderr, " '%s'", temp);
-  }
-  fprintf(stderr, "\n");
 
   // Get RVD/bp matching scores
   Hashmap *diresidue_probabilities = get_diresidue_probabilities(w);
@@ -436,7 +427,7 @@ int main(int argc, char **argv)
 
   // Compute optimal score for this RVD sequence
   double best_score = get_best_score(rvdseq, diresidue_scores);
-  fprintf(stderr, "Best score: %.4lf\n", best_score);
+  fprintf(stderr, "%-20s %.4lf\n\n", "RVD best score:", best_score);
 
   // Open genomic sequence file
   seqfile = gzopen(seqfilename, "r");
@@ -451,8 +442,8 @@ int main(int argc, char **argv)
   seq = kseq_init(seqfile);
   while((i = kseq_read(seq)) >= 0)
   {
-    fprintf(stderr, "Found seq '%s', length %d\n", seq->name.s, seq->seq.l);
-    find_binding_sites(seq, rvdseq, diresidue_scores, best_score * x, forwardonly, outstream);
+    fprintf(stderr, "  Processing sequence '%s' (length %d)\n", seq->name.s, seq->seq.l);
+    find_binding_sites(seq, rvdseq, diresidue_scores, best_score * x, sourcestr, forwardonly, outstream);
   }
   kseq_destroy(seq);
   gzclose(seqfile);
