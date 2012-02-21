@@ -1,3 +1,15 @@
+/*
+Copyright (c) 2011-2012, Daniel S. Standage <daniel.standage@gmail.com> and
+Erin Doyle <edoyle@iastate.edu>
+
+See README for license details.
+
+For compiling, try this.
+
+gcc -Wall -O3 -o talesf *.c -lz -lm
+
+*/
+
 // System libraries
 #include <getopt.h>
 #include <math.h>

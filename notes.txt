@@ -1,1 +1,0 @@
-clear &&  gcc -g -Wall -o otsf otsf.c -lz -lm && valgrind --leak-check=full --show-reachable=yes ./otsf test.seq "NN NG NN NG NG HD HD NG HD NI NN HD NG NN NG NN NG"
