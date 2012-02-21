@@ -12,6 +12,7 @@ For compiling, try this.
 // System libraries
 #include <getopt.h>
 #include <math.h>
+#include <omp.h>
 #include <stdio.h>
 #include <zlib.h>
 
@@ -79,13 +80,14 @@ void print_usage(FILE *outstream, char *progname)
            "  Options:\n"
            "    -f|--forwardonly      only search the forward strand of the genomic sequence\n"
            "    -h|--help             print this help message and exit\n"
+           "    -n|--numprocs         the number of processors to use; default is 1\n"
            "    -o|--outfile          file to which output will be written; default is terminal\n"
            "                          (STDOUT)\n"
            "    -s|--source           text for the third column of the GFF3 output; default is\n"
            "                          TALESF\n"
            "    -w|--weight           user-defined weight; default is 0.9\n"
            "    -x|--cutoffmult       multiple of best score at which potential sites will be\n"
-           "                          filtered\n\n", progname );
+           "                          filtered; default is 3.0\n\n", progname );
 }
 
 // Identify and print out TAL effector binding sites
@@ -319,7 +321,7 @@ int main(int argc, char **argv)
 {
   // Program arguments and options
   char *progname, *seqfilename, *rvdstring, sourcestr[128];
-  int forwardonly;
+  int forwardonly, numprocs;
   FILE *outstream;
   double w, x;
 
@@ -328,23 +330,25 @@ int main(int argc, char **argv)
   char *tok, cmd[256], line[32];
   gzFile seqfile;
   kseq_t *seq;
-  int i, seqnum;
+  int i, j, seqnum, rank;
 
   // Set option defaults
   forwardonly = 0;
   outstream = stdout;
   strcpy(sourcestr, "TALESF");
+  numprocs = 1;
   w = 0.9;
   x = 3.0;
 
   // Parse options
   progname = argv[0];
   int opt, optindex;
-  const char *optstr = "fho:s:w:x:";
+  const char *optstr = "fhn:o:s:w:x:";
   const struct option otsf_options[] =
   {
     { "forwardonly", no_argument, NULL, 'f' },
     { "help", no_argument, NULL, 'h' },
+    { "numprocs", required_argument, NULL, 'n' },
     { "outfile", required_argument, NULL, 'o' },
     { "source", required_argument, NULL, 's' },
     { "weight", required_argument, NULL, 'w' },
@@ -365,6 +369,14 @@ int main(int argc, char **argv)
       case 'h':
         print_usage(stdout, progname);
         return 0;
+
+      case 'n':
+        if( sscanf(optarg, "%d", &numprocs) == EOF )
+        {
+          fprintf(stderr, "Error: unable to convert numprocs '%s' to an integer\n", optarg);
+          return 1;
+        }
+        break;
 
       case 'o':
         outstream = fopen(optarg, "w");
@@ -429,14 +441,6 @@ int main(int argc, char **argv)
   double best_score = get_best_score(rvdseq, diresidue_scores);
   fprintf(stderr, "%-20s %.4lf\n\n", "RVD best score:", best_score);
 
-  // Open genomic sequence file
-  seqfile = gzopen(seqfilename, "r");
-  if(!seqfile)
-  {
-    fprintf(stderr, "Error: unable to open genomic sequence '%s'\n", seqfilename);
-    return 1;
-  }
-
   // Determine number of sequences in file
   sprintf(cmd, "grep '^>' %s | wc -l", seqfilename);
   FILE *in = popen(cmd, "r");
@@ -449,16 +453,46 @@ int main(int argc, char **argv)
   pclose(in);
   seqnum = atoi(line);
 
-  // Process
+  // Begin processing
   fprintf(outstream, "##gff-version 3\n");
-  seq = kseq_init(seqfile);
-  while((i = kseq_read(seq)) >= 0)
+
+  omp_set_num_threads(numprocs);
+  #pragma omp parallel private(i, j, seq, seqfile, rank)
   {
-    fprintf(stderr, "  Processing sequence '%s' (length %ld)\n", seq->name.s, seq->seq.l);
-    find_binding_sites(seq, rvdseq, diresidue_scores, best_score * x, sourcestr, forwardonly, outstream);
+    rank = omp_get_thread_num();
+
+    // Open genomic sequence file
+    seqfile = gzopen(seqfilename, "r");
+    if(!seqfile)
+    {
+      fprintf(stderr, "Error: unable to open genomic sequence '%s'\n", seqfilename);
+      exit(1);
+    }
+    seq = kseq_init(seqfile);
+  
+    j = 0;
+    #pragma omp for schedule(static)
+    for(i = 0; i < seqnum; i++)
+    {
+      while(j <= i)
+      {
+        int result = kseq_read(seq);
+        if(result < 0)
+        {
+          fprintf(stderr, "Error: problem parsing data from '%s'\n", seqfilename);
+          exit(1);
+        }
+        j++;
+      }
+      
+    //while((i = kseq_read(seq)) >= 0)
+    //{
+      fprintf(stderr, "  Processor %d working on sequence '%s' (length %ld)\n", rank, seq->name.s, seq->seq.l);
+      find_binding_sites(seq, rvdseq, diresidue_scores, best_score * x, sourcestr, forwardonly, outstream);
+    }
+    kseq_destroy(seq);
+    gzclose(seqfile);  
   }
-  kseq_destroy(seq);
-  gzclose(seqfile);
 
   // Free memory
   for(i = 0; i < array_size(rvdseq); i++)
