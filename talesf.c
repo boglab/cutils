@@ -109,7 +109,7 @@ void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, d
     if(i == 0)
       strncpy(rvdstring, rvd, 2);
     else
-      sprintf(rvdstring + (i*3)-1, " %s", rvd);
+      sprintf(rvdstring + (i*3)-1, "_%s", rvd);
   }
   rvdstring[3*array_size(rvdseq)] = '\0';
 
@@ -245,21 +245,15 @@ Hashmap *get_diresidue_probabilities(double w)
   num_diresidues = hashmap_size(diresidue_counts);
   for(i = 0; i < num_diresidues; i++)
   {
-    double p[4], psum;
+    double p[4];
     int j;
     int *counts = hashmap_get(diresidue_counts, diresidues[i]);
     int sum = counts[0] + counts[1] + counts[2] + counts[3];
 
-    psum = 0.0;
     for(j = 0; j < 4; j++)
     {
-      p[j] = (double)counts[j] / (double)sum * w * 10.0 + (1.0 - w) / 4.0 * 10.0;
-      psum += p[j];
+      p[j] = w * (double)counts[j] / (double)sum + (1.0 - w) / 4.0;
     }
-
-    // Normalize
-    for(j = 0; j < 4; j++)
-      p[j] /= psum;
 
     hashmap_add(diresidue_probabilities, diresidues[i], double_array(p[0], p[1], p[2], p[3]));
   }
@@ -424,12 +418,12 @@ int main(int argc, char **argv)
   fprintf(stderr, "%-20s '%s'\n", "RVD sequence:", rvdstring);
 
   rvdseq = array_new( sizeof(char *) );
-  tok = strtok(rvdstring, " ");
+  tok = strtok(rvdstring, " _");
   while(tok != NULL)
   {
     char *r = strdup(tok);
     array_add(rvdseq, r);
-    tok = strtok(NULL, " ");
+    tok = strtok(NULL, " _");
   }
 
   // Get RVD/bp matching scores
