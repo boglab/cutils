@@ -15,6 +15,8 @@ For compiling, try this.
 #include <omp.h>
 #include <stdio.h>
 #include <zlib.h>
+#include <stdlib.h>
+#include <string.h>
 
 // Include my libraries
 #include "Array.h"
@@ -27,50 +29,108 @@ KSEQ_INIT(gzFile, gzread)
 typedef struct
 {
   int strand;
-  kseq_t *seq;
-  Array *rvdseq;
-  char *rvdstring;
-  char *sourcestr;
+  char *sequence;
+  char *sequence_name;
   unsigned long index;
   double score;
 } BindingSite;
 
-// Print the binding site in GFF3 format to the given output stream
-void binding_site_print(BindingSite *site, FILE *outstream)
+int binding_site_compare_score(const void * a, const void * b)
 {
-  int num_rvds = array_size(site->rvdseq);
-  char strand = '+';
-  char *sequence = malloc(sizeof(char)*(num_rvds+1));
-  sequence[num_rvds] = '\0';
-  if(site->strand > 0)
-    strncpy(sequence, site->seq->seq.s + site->index, num_rvds);
-  else
-  {
-    int i;
-    for(i = 0; i < num_rvds; i++)
-    {
-      char base = site->seq->seq.s[site->index + num_rvds - i - 1];
-      if(base == 'A' || base == 'a')
-        sequence[i] = 'T';
-      else if(base == 'C' || base == 'c')
-        sequence[i] = 'G';
-      else if(base == 'G' || base == 'g')
-        sequence[i] = 'C';
-      else if(base == 'T' || base == 't')
-        sequence[i] = 'A';
-      else
-      {
-        fprintf(stderr, "Error: unexpected character '%c'\n", base);
-        exit(1);
-      }
-    }
-    strand = '-';
+  BindingSite *real_a = *((BindingSite **)a);
+  BindingSite *real_b = *((BindingSite **)b);
+
+  double score_diff = ((real_a->score) - (real_b->score));
+
+  if(score_diff < -0.01) {
+    return -1;
+  } else if(score_diff > 0.01) {
+    return 1;
+  } else {
+    return 0;
   }
 
-  fprintf( outstream, "%s\t%s\t%s\t%lu\t%lu\t%.2lf\t%c\t.\trvd_sequence=%s;target_sequence=%s;\n",
-           site->seq->name.s, site->sourcestr, "TAL_effector_binding_site", site->index + 1,
-           site->index + num_rvds, site->score, strand, site->rvdstring, sequence);
-  free(sequence);
+}
+
+void print_results(Array *results, char *sourcestr, Array* rvdseq, char* output_filepath) {
+
+    int num_rvds = array_size(rvdseq);
+    char strand = '+';
+    char *plus_strand_sequence;
+    FILE *outstream;
+
+    char *rvdstring = calloc(3 * num_rvds, sizeof(char));
+
+    int i;
+
+    for(i = 0; i < num_rvds; i++)
+    {
+      char *rvd = array_get(rvdseq, i);
+      if(i == 0)
+        strncpy(rvdstring, rvd, 2);
+      else
+        sprintf(rvdstring + (i*3)-1, "_%s", rvd);
+    }
+    rvdstring[3*num_rvds - 1] = '\0';
+
+    outstream = fopen(output_filepath, "w");
+    if(!outstream)
+    {
+        fprintf(stderr, "Error: unable to open output file '%s'\n", output_filepath);
+        return;
+    }
+
+    fprintf(outstream, "##gff-version 3\n");
+
+    for(i = 0; i < array_size(results); i++)
+    {
+
+      BindingSite *site = (BindingSite *)array_get(results, i);
+      char *sequence = site->sequence;
+
+      if(site->strand > 0)
+        plus_strand_sequence = sequence;
+      else
+      {
+        int j;
+
+        plus_strand_sequence = sequence;
+        sequence = malloc(sizeof(char)*(num_rvds+1));
+        sequence[num_rvds] = '\0';
+
+        for(j = 0; j < num_rvds; j++)
+        {
+          char base = site->sequence[num_rvds - j - 1];
+          if(base == 'A' || base == 'a')
+            sequence[j] = 'T';
+          else if(base == 'C' || base == 'c')
+            sequence[j] = 'G';
+          else if(base == 'G' || base == 'g')
+            sequence[j] = 'C';
+          else if(base == 'T' || base == 't')
+            sequence[j] = 'A';
+          else
+          {
+            fprintf(stderr, "Error: unexpected character '%c'\n", base);
+            exit(1);
+          }
+        }
+        strand = '-';
+      }
+
+      fprintf( outstream, "%s\t%s\t%s\t%lu\t%lu\t%.2lf\t%c\t.\trvd_sequence=%s;target_sequence=%s;\n",
+               site->sequence_name, sourcestr, "TAL_effector_binding_site", site->index + 1,
+               site->index + num_rvds, site->score, strand, rvdstring, sequence);
+
+      if(plus_strand_sequence != sequence) {
+          free(sequence);
+      }
+
+    }
+
+    free(rvdstring);
+    fclose(outstream);
+
 }
 
 // Print usage statement
@@ -91,34 +151,26 @@ void print_usage(FILE *outstream, char *progname)
 }
 
 // Identify and print out TAL effector binding sites
-void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, double cutoff, char *sourcestr, int forwardonly, FILE *outstream)
+void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, double cutoff, int forwardonly, Array *results)
 {
   unsigned long i, j;
-  char *rvdstring;
+  int num_rvds = array_size(rvdseq);
+  int seq_name_len;
 
-  if(array_size(rvdseq) > seq->seq.l)
+  if(num_rvds > seq->seq.l)
   {
     fprintf(stderr, "Warning: skipping sequence '%s' since it is shorter than the RVD sequence\n", seq->seq.s);
     return;
   }
 
-  rvdstring = malloc(sizeof(char)*3*array_size(rvdseq));
-  for(i = 0; i < array_size(rvdseq); i++)
-  {
-    char *rvd = array_get(rvdseq, i);
-    if(i == 0)
-      strncpy(rvdstring, rvd, 2);
-    else
-      sprintf(rvdstring + (i*3)-1, "_%s", rvd);
-  }
-  rvdstring[3*array_size(rvdseq) - 1] = '\0';
+  seq_name_len = strlen(seq->name.s);
 
-  for(i = 1; i <= seq->seq.l - array_size(rvdseq); i++)
+  for(i = 1; i <= seq->seq.l - num_rvds; i++)
   {
     if(seq->seq.s[i-1] == 'T' || seq->seq.s[i-1] == 't')
     {
       double cumscore = 0.0;
-      for(j = 0; j < array_size(rvdseq); j++)
+      for(j = 0; j < num_rvds; j++)
       {
         char *rvd = array_get(rvdseq, j);
         double *scores = hashmap_get(diresidue_scores, rvd);
@@ -140,19 +192,36 @@ void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, d
 
       if(cumscore <= cutoff)
       {
-        BindingSite site = { 1, seq, rvdseq, rvdstring, sourcestr, i, cumscore };
-        binding_site_print(&site, outstream);
+
+        BindingSite *site = malloc(sizeof(BindingSite));
+
+        site->sequence = calloc(num_rvds + 1, sizeof(char));
+        site->sequence_name = calloc(seq_name_len + 1, sizeof(char));
+        site->sequence[num_rvds] = '\0';
+        site->sequence_name[seq_name_len] = '\0';
+
+        site->strand = 1;
+        site->index = i;
+
+        strncpy(site->sequence, seq->seq.s + site->index, num_rvds);
+        strncpy(site->sequence_name, seq->name.s, seq_name_len);
+
+        site->score = cumscore;
+
+        #pragma omp critical (add_result)
+        array_add(results, site);
+
       }
     }
 
     if(!forwardonly)
     {
-      if(seq->seq.s[i + array_size(rvdseq) - 1] == 'A' || seq->seq.s[i + array_size(rvdseq) - 1] == 'a')
+      if(seq->seq.s[i + num_rvds - 1] == 'A' || seq->seq.s[i + num_rvds - 1] == 'a')
       {
         double cumscore = 0.0;
-        for(j = 0; j < array_size(rvdseq); j++)
+        for(j = 0; j < num_rvds; j++)
         {
-          char *rvd = array_get(rvdseq, array_size(rvdseq) - j - 1);
+          char *rvd = array_get(rvdseq, num_rvds - j - 1);
           double *scores = hashmap_get(diresidue_scores, rvd);
 
           if(seq->seq.s[i+j-1] == 'A' || seq->seq.s[i+j-1] == 'a')
@@ -172,14 +241,30 @@ void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, d
 
         if(cumscore <= cutoff)
         {
-          BindingSite site = { -1, seq, rvdseq, rvdstring, sourcestr, i-1, cumscore };
-          binding_site_print(&site, outstream);
+
+          BindingSite *site = malloc(sizeof(BindingSite));
+
+          site->sequence = calloc(num_rvds + 1, sizeof(char));
+          site->sequence_name = calloc(seq_name_len + 1, sizeof(char));
+          site->sequence[num_rvds] = '\0';
+          site->sequence_name[seq_name_len] = '\0';
+
+          site->strand = -1;
+          site->index = i - 1;
+
+          strncpy(site->sequence, seq->seq.s + site->index, num_rvds);
+          strncpy(site->sequence_name, seq->name.s, seq_name_len);
+
+          site->score = cumscore;
+
+          #pragma omp critical (add_result)
+          array_add(results, site);
+
         }
       }
     }
   }
 
-  free(rvdstring);
 }
 
 // Allocate memory for an array of 4 doubles
@@ -314,9 +399,8 @@ double get_best_score(Array *rvdseq, Hashmap *rvdscores)
 int main(int argc, char **argv)
 {
   // Program arguments and options
-  char *progname, *seqfilename, *rvdstring, sourcestr[128];
+  char *progname, *seqfilename, *rvdstring, *output_filepath = NULL, sourcestr[128];
   int forwardonly, numprocs;
-  FILE *outstream;
   double w, x;
 
   // Program variable domain
@@ -326,9 +410,10 @@ int main(int argc, char **argv)
   kseq_t *seq;
   int i, j, seqnum, rank;
 
+  Array *results = array_new( sizeof(BindingSite *) );
+
   // Set option defaults
   forwardonly = 0;
-  outstream = stdout;
   strcpy(sourcestr, "TALESF");
   numprocs = 1;
   w = 0.9;
@@ -373,14 +458,16 @@ int main(int argc, char **argv)
         break;
 
       case 'o':
-        outstream = fopen(optarg, "w");
-        if(!outstream)
-        {
-          fprintf(stderr, "Error: unable to open output file '%s'\n", optarg);
-          return 1;
+
+        if(output_filepath != NULL) {
+            free(output_filepath);
+            output_filepath = NULL;
         }
+        output_filepath = calloc(strlen(optarg) + 1, sizeof(char));
+        strcpy(output_filepath, optarg);
+
         break;
-      
+
       case 's':
         strcpy(sourcestr, optarg);
         break;
@@ -448,7 +535,6 @@ int main(int argc, char **argv)
   seqnum = atoi(line);
 
   // Begin processing
-  fprintf(outstream, "##gff-version 3\n");
 
   omp_set_num_threads(numprocs);
   #pragma omp parallel private(i, j, seq, seqfile, rank)
@@ -463,7 +549,7 @@ int main(int argc, char **argv)
       exit(1);
     }
     seq = kseq_init(seqfile);
-  
+
     j = 0;
     #pragma omp for schedule(static)
     for(i = 0; i < seqnum; i++)
@@ -478,22 +564,44 @@ int main(int argc, char **argv)
         }
         j++;
       }
-      
-    //while((i = kseq_read(seq)) >= 0)
-    //{
+
       fprintf(stderr, "  Processor %d working on sequence '%s' (length %ld)\n", rank, seq->name.s, seq->seq.l);
-      find_binding_sites(seq, rvdseq, diresidue_scores, best_score * x, sourcestr, forwardonly, outstream);
+      find_binding_sites(seq, rvdseq, diresidue_scores, best_score * x, forwardonly, results);
+
     }
+
     kseq_destroy(seq);
-    gzclose(seqfile);  
+    gzclose(seqfile);
+
   }
 
+  qsort(results->data, array_size(results), sizeof(BindingSite *), binding_site_compare_score);
+
+  print_results(results, sourcestr, rvdseq, output_filepath);
+
   // Free memory
+
+  free(output_filepath);
+  for(i = 0; i < array_size(results); i++)
+  {
+      BindingSite *site = (BindingSite *)array_get(results, i);
+
+      free(site->sequence);
+      free(site->sequence_name);
+      free(site);
+
+  }
+
+  array_delete(results);
+
+
   for(i = 0; i < array_size(rvdseq); i++)
   {
     char *temp = (char *)array_get(rvdseq, i);
     free(temp);
   }
+
+
   array_delete(rvdseq);
   hashmap_delete(diresidue_scores, free);
 
