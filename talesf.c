@@ -111,7 +111,7 @@ void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, d
     else
       sprintf(rvdstring + (i*3)-1, "_%s", rvd);
   }
-  rvdstring[3*array_size(rvdseq)] = '\0';
+  rvdstring[3*array_size(rvdseq) - 1] = '\0';
 
   for(i = 1; i <= seq->seq.l - array_size(rvdseq); i++)
   {
