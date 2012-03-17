@@ -52,12 +52,16 @@ int binding_site_compare_score(const void * a, const void * b)
 
 }
 
-void print_results(Array *results, char *sourcestr, Array* rvdseq, char* output_filepath) {
+void print_results(Array *results, char *sourcestr, Array* rvdseq, double best_score, int forwardonly, char* output_filepath, int create_tabfile) {
 
     int num_rvds = array_size(rvdseq);
     char strand = '+';
+    char *tab_strand = "Plus";
     char *plus_strand_sequence;
-    FILE *outstream;
+    FILE *gff_out_file, *tab_out_file;
+
+    size_t output_filepath_length;
+    char* temp_output_filepath;
 
     char *rvdstring = calloc(3 * num_rvds, sizeof(char));
 
@@ -73,14 +77,56 @@ void print_results(Array *results, char *sourcestr, Array* rvdseq, char* output_
     }
     rvdstring[3*num_rvds - 1] = '\0';
 
-    outstream = fopen(output_filepath, "w");
-    if(!outstream)
+    if(create_tabfile)
+    {
+
+        output_filepath_length = strlen(output_filepath) + 5;
+        temp_output_filepath = calloc(output_filepath_length + 1, sizeof(char));
+
+        sprintf(temp_output_filepath, "%s.txt", output_filepath);
+        tab_out_file = fopen(temp_output_filepath, "w");
+        memset(temp_output_filepath, '\0', output_filepath_length);
+        sprintf(temp_output_filepath, "%s.gff3", output_filepath);
+        gff_out_file = fopen(temp_output_filepath, "w");
+        free(temp_output_filepath);
+
+    }
+    else
+    {
+        gff_out_file = fopen(output_filepath, "w");
+    }
+
+    if(!gff_out_file || (create_tabfile && !tab_out_file))
     {
         fprintf(stderr, "Error: unable to open output file '%s'\n", output_filepath);
         return;
     }
 
-    fprintf(outstream, "##gff-version 3\n");
+    if(create_tabfile)
+    {
+        if (forwardonly)
+        {
+            fprintf(tab_out_file, "table_ignores:Plus strand sequence\n");
+        }
+
+        fprintf(tab_out_file, "Best Possible Score:%.2lf\n", best_score);
+        fprintf(tab_out_file, "Genome Coordinates\tStrand\tScore\tTarget Sequence\tPlus strand sequence\n");
+
+    }
+
+
+    fprintf(gff_out_file, "##gff-version 3\n");
+
+    if (forwardonly)
+    {
+        fprintf(gff_out_file, "#table_display_tags:target_sequence\n");
+    }
+    else
+    {
+        fprintf(gff_out_file, "#table_display_tags:target_sequence,plus_strand_sequence\n");
+    }
+
+    fprintf(gff_out_file, "#Best Possible Score:%.2lf\n", best_score);
 
     for(i = 0; i < array_size(results); i++)
     {
@@ -116,9 +162,16 @@ void print_results(Array *results, char *sourcestr, Array* rvdseq, char* output_
           }
         }
         strand = '-';
+        tab_strand = "Minus";
       }
 
-      fprintf( outstream, "%s\t%s\t%s\t%lu\t%lu\t%.2lf\t%c\t.\trvd_sequence=%s;target_sequence=%s;\n",
+      if(create_tabfile)
+      {
+          fprintf( tab_out_file, "%s\t%s\t%.2lf\t%lu\t%s\t%s\n",
+                   site->sequence_name, tab_strand, site->score, site->index + 1, sequence, plus_strand_sequence);
+      }
+
+      fprintf( gff_out_file, "%s\t%s\t%s\t%lu\t%lu\t%.2lf\t%c\t.\trvd_sequence=%s;target_sequence=%s;\n",
                site->sequence_name, sourcestr, "TAL_effector_binding_site", site->index + 1,
                site->index + num_rvds, site->score, strand, rvdstring, sequence);
 
@@ -129,7 +182,12 @@ void print_results(Array *results, char *sourcestr, Array* rvdseq, char* output_
     }
 
     free(rvdstring);
-    fclose(outstream);
+    fclose(gff_out_file);
+
+    if(create_tabfile)
+    {
+        fclose(tab_out_file);
+    }
 
 }
 
@@ -138,6 +196,7 @@ void print_usage(FILE *outstream, char *progname)
 {
   fprintf( outstream, "\nUsage: %s [options] genomeseq \"rvdseq\"\n"
            "  Options:\n"
+           "    -t|--tabfile          generate a tab-delimited output file in addition to gff3\n"
            "    -f|--forwardonly      only search the forward strand of the genomic sequence\n"
            "    -h|--help             print this help message and exit\n"
            "    -n|--numprocs         the number of processors to use; default is 1\n"
@@ -408,11 +467,12 @@ int main(int argc, char **argv)
   char *tok, cmd[256], line[32];
   gzFile seqfile;
   kseq_t *seq;
-  int i, j, seqnum, rank;
+  int i, j, seqnum, rank, create_tabfile;
 
   Array *results = array_new( sizeof(BindingSite *) );
 
   // Set option defaults
+  create_tabfile = 0;
   forwardonly = 0;
   strcpy(sourcestr, "TALESF");
   numprocs = 1;
@@ -422,9 +482,10 @@ int main(int argc, char **argv)
   // Parse options
   progname = argv[0];
   int opt, optindex;
-  const char *optstr = "fhn:o:s:w:x:";
+  const char *optstr = "tfhn:o:s:w:x:";
   const struct option otsf_options[] =
   {
+    { "tabfile", no_argument, NULL, 't' },
     { "forwardonly", no_argument, NULL, 'f' },
     { "help", no_argument, NULL, 'h' },
     { "numprocs", required_argument, NULL, 'n' },
@@ -443,6 +504,10 @@ int main(int argc, char **argv)
     {
       case 'f':
         forwardonly = 1;
+        break;
+
+      case 't':
+        create_tabfile = 1;
         break;
 
       case 'h':
@@ -577,7 +642,7 @@ int main(int argc, char **argv)
 
   qsort(results->data, array_size(results), sizeof(BindingSite *), binding_site_compare_score);
 
-  print_results(results, sourcestr, rvdseq, output_filepath);
+  print_results(results, sourcestr, rvdseq, best_score, forwardonly, output_filepath, create_tabfile);
 
   // Free memory
 
