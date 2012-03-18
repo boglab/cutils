@@ -58,7 +58,8 @@ void print_results(Array *results, char *sourcestr, Array* rvdseq, double best_s
     char strand = '+';
     char *tab_strand = "Plus";
     char *plus_strand_sequence;
-    FILE *gff_out_file, *tab_out_file;
+    FILE *gff_out_file = NULL;
+    FILE *tab_out_file = NULL;
 
     size_t output_filepath_length;
     char* temp_output_filepath;
@@ -77,23 +78,30 @@ void print_results(Array *results, char *sourcestr, Array* rvdseq, double best_s
     }
     rvdstring[3*num_rvds - 1] = '\0';
 
-    if(create_tabfile)
-    {
+    if(output_filepath == NULL) {
+        create_tabfile = 0;
+        gff_out_file = stdout;
 
-        output_filepath_length = strlen(output_filepath) + 5;
-        temp_output_filepath = calloc(output_filepath_length + 1, sizeof(char));
+    } else {
 
-        sprintf(temp_output_filepath, "%s.txt", output_filepath);
-        tab_out_file = fopen(temp_output_filepath, "w");
-        memset(temp_output_filepath, '\0', output_filepath_length);
-        sprintf(temp_output_filepath, "%s.gff3", output_filepath);
-        gff_out_file = fopen(temp_output_filepath, "w");
-        free(temp_output_filepath);
+        if(create_tabfile)
+        {
 
-    }
-    else
-    {
-        gff_out_file = fopen(output_filepath, "w");
+            output_filepath_length = strlen(output_filepath) + 5;
+            temp_output_filepath = calloc(output_filepath_length + 1, sizeof(char));
+
+            sprintf(temp_output_filepath, "%s.txt", output_filepath);
+            tab_out_file = fopen(temp_output_filepath, "w");
+            memset(temp_output_filepath, '\0', output_filepath_length);
+            sprintf(temp_output_filepath, "%s.gff3", output_filepath);
+            gff_out_file = fopen(temp_output_filepath, "w");
+            free(temp_output_filepath);
+
+        }
+        else
+        {
+            gff_out_file = fopen(output_filepath, "w");
+        }
     }
 
     if(!gff_out_file || (create_tabfile && !tab_out_file))
