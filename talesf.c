@@ -17,6 +17,8 @@ For compiling, try this.
 #include <zlib.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <stdarg.h>
 
 // Include my libraries
 #include "Array.h"
@@ -52,7 +54,7 @@ int binding_site_compare_score(const void * a, const void * b)
 
 }
 
-void print_results(Array *results, char *sourcestr, Array* rvdseq, double best_score, int forwardonly, char* output_filepath, int create_tabfile) {
+int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_score, int forwardonly, char *output_filepath, FILE *log_file, int create_tabfile) {
 
     int num_rvds = array_size(rvdseq);
     char strand = '+';
@@ -106,8 +108,8 @@ void print_results(Array *results, char *sourcestr, Array* rvdseq, double best_s
 
     if(!gff_out_file || (create_tabfile && !tab_out_file))
     {
-        fprintf(stderr, "Error: unable to open output file '%s'\n", output_filepath);
-        return;
+        fprintf(log_file, "Error: unable to open output file '%s'\n", output_filepath);
+        return 1;
     }
 
     if(create_tabfile)
@@ -197,24 +199,8 @@ void print_results(Array *results, char *sourcestr, Array* rvdseq, double best_s
         fclose(tab_out_file);
     }
 
-}
+    return 0;
 
-// Print usage statement
-void print_usage(FILE *outstream, char *progname)
-{
-  fprintf( outstream, "\nUsage: %s [options] genomeseq \"rvdseq\"\n"
-           "  Options:\n"
-           "    -t|--tabfile          generate a tab-delimited output file in addition to gff3\n"
-           "    -f|--forwardonly      only search the forward strand of the genomic sequence\n"
-           "    -h|--help             print this help message and exit\n"
-           "    -n|--numprocs         the number of processors to use; default is 1\n"
-           "    -o|--outfile          file to which output will be written; default is terminal\n"
-           "                          (STDOUT)\n"
-           "    -s|--source           text for the third column of the GFF3 output; default is\n"
-           "                          TALESF\n"
-           "    -w|--weight           user-defined weight; default is 0.9\n"
-           "    -x|--cutoffmult       multiple of best score at which potential sites will be\n"
-           "                          filtered; default is 3.0\n\n", progname );
 }
 
 // Identify and print out TAL effector binding sites
@@ -462,221 +448,194 @@ double get_best_score(Array *rvdseq, Hashmap *rvdscores)
   return best_score;
 }
 
-// Main method
-int main(int argc, char **argv)
-{
-  // Program arguments and options
-  char *progname, *seqfilename, *rvdstring, *output_filepath = NULL, sourcestr[128];
-  int forwardonly, numprocs;
-  double w, x;
+void logger(FILE* log_file, char* message, ...) {
 
-  // Program variable domain
-  Array *rvdseq;
-  char *tok, cmd[256], line[32];
-  gzFile seqfile;
-  kseq_t *seq;
-  int i, j, seqnum, rank, create_tabfile;
+    time_t rawtime;
+    va_list args;
 
-  Array *results = array_new( sizeof(BindingSite *) );
+    time(&rawtime);
 
-  // Set option defaults
-  create_tabfile = 0;
-  forwardonly = 0;
-  strcpy(sourcestr, "TALESF");
-  numprocs = 1;
-  w = 0.9;
-  x = 3.0;
+    char* timestamp_message = calloc(strlen(message) + 256, sizeof(char));
+    char* ctime_string = ctime(&rawtime);
 
-  // Parse options
-  progname = argv[0];
-  int opt, optindex;
-  const char *optstr = "tfhn:o:s:w:x:";
-  const struct option otsf_options[] =
-  {
-    { "tabfile", no_argument, NULL, 't' },
-    { "forwardonly", no_argument, NULL, 'f' },
-    { "help", no_argument, NULL, 'h' },
-    { "numprocs", required_argument, NULL, 'n' },
-    { "outfile", required_argument, NULL, 'o' },
-    { "source", required_argument, NULL, 's' },
-    { "weight", required_argument, NULL, 'w' },
-    { "cutoffmult", required_argument, NULL, 'x' },
-    { NULL, no_argument, NULL, 0 },
-  };
+    strcpy(timestamp_message, "[");
+    strncat(timestamp_message, ctime_string, strlen(ctime_string) - 1);
+    strcat(timestamp_message, "] ");
+    strcat(timestamp_message, message);
+    strcat(timestamp_message, "\n");
 
-  for( opt = getopt_long(argc, argv + 0, optstr, otsf_options, &optindex);
-       opt != -1;
-       opt = getopt_long(argc, argv + 0, optstr, otsf_options, &optindex) )
-  {
-    switch(opt)
-    {
-      case 'f':
-        forwardonly = 1;
-        break;
+    va_start(args, message);
+    vfprintf(log_file, timestamp_message, args);
 
-      case 't':
-        create_tabfile = 1;
-        break;
+    va_end(args);
 
-      case 'h':
-        print_usage(stdout, progname);
-        return 0;
+    fflush(log_file);
+    free(timestamp_message);
 
-      case 'n':
-        if( sscanf(optarg, "%d", &numprocs) == EOF )
-        {
-          fprintf(stderr, "Error: unable to convert numprocs '%s' to an integer\n", optarg);
-          return 1;
-        }
-        break;
+}
 
-      case 'o':
+int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, char *log_filepath, double weight, double cutoff, int forwardonly, int numprocs, int create_tabfile) {
 
-        if(output_filepath != NULL) {
-            free(output_filepath);
-            output_filepath = NULL;
-        }
-        output_filepath = calloc(strlen(optarg) + 1, sizeof(char));
-        strcpy(output_filepath, optarg);
+    char sourcestr[128];
 
-        break;
+    // Program variable domain
+    Array *rvdseq;
+    char *tok, cmd[256], line[32];
+    gzFile seqfile;
+    kseq_t *seq;
+    int i, j, seqnum, rank;
 
-      case 's':
-        strcpy(sourcestr, optarg);
-        break;
+    FILE *log_file = stdout;
 
-     case 'w':
-       if( sscanf(optarg, "%lf", &w) == EOF )
-       {
-         fprintf(stderr, "Error: unable to convert weight '%s' to a double\n", optarg);
-         return 1;
-       }
-       break;
-
-     case 'x':
-       if( sscanf(optarg, "%lf", &x) == EOF )
-       {
-         fprintf(stderr, "Error: unable to convert cutoff multiple '%s' to a double\n", optarg);
-         return 1;
-       }
-       break;
+    if(log_filepath) {
+        log_file = fopen(log_filepath, "w");
     }
-  }
 
-  // Parse arguments
-  if(argc - optind != 2)
-  {
-    fputs("Error: must provide genomic sequence (file) and RVD sequence (string)...no more, no less\n", stderr);
-    print_usage(stderr, progname);
-    return 1;
-  }
-  seqfilename = argv[optind];
-  rvdstring = argv[optind + 1];
+    strcpy(sourcestr, "TALESF");
+    Array *results = array_new( sizeof(BindingSite *) );
 
-  // Print verbose output
-  fprintf(stderr, "\n%-20s '%s'\n", "Sequence data:", seqfilename);
-  fprintf(stderr, "%-20s '%s'\n", "RVD sequence:", rvdstring);
-
-  rvdseq = array_new( sizeof(char *) );
-  tok = strtok(rvdstring, " _");
-  while(tok != NULL)
-  {
-    char *r = strdup(tok);
-    array_add(rvdseq, r);
-    tok = strtok(NULL, " _");
-  }
-
-  // Get RVD/bp matching scores
-  Hashmap *diresidue_probabilities = get_diresidue_probabilities(w);
-  Hashmap *diresidue_scores = convert_probabilities_to_scores(diresidue_probabilities);
-  hashmap_delete(diresidue_probabilities, NULL);
-
-  // Compute optimal score for this RVD sequence
-  double best_score = get_best_score(rvdseq, diresidue_scores);
-  fprintf(stderr, "%-20s %.4lf\n\n", "RVD best score:", best_score);
-
-  // Determine number of sequences in file
-  sprintf(cmd, "grep '^>' %s | wc -l", seqfilename);
-  FILE *in = popen(cmd, "r");
-  if(!in)
-  {
-    perror("Error: unable to check fasta file size\n");
-    return 1;
-  }
-  fgets(line, sizeof(line), in);
-  pclose(in);
-  seqnum = atoi(line);
-
-  // Begin processing
-
-  omp_set_num_threads(numprocs);
-  #pragma omp parallel private(i, j, seq, seqfile, rank)
-  {
-    rank = omp_get_thread_num();
-
-    // Open genomic sequence file
-    seqfile = gzopen(seqfilename, "r");
-    if(!seqfile)
+    rvdseq = array_new( sizeof(char *) );
+    tok = strtok(rvdstring, " _");
+    while(tok != NULL)
     {
-      fprintf(stderr, "Error: unable to open genomic sequence '%s'\n", seqfilename);
-      exit(1);
+      char *r = strdup(tok);
+      array_add(rvdseq, r);
+      tok = strtok(NULL, " _");
     }
-    seq = kseq_init(seqfile);
 
-    j = 0;
-    #pragma omp for schedule(static)
-    for(i = 0; i < seqnum; i++)
+    // Get RVD/bp matching scores
+    Hashmap *diresidue_probabilities = get_diresidue_probabilities(weight);
+    Hashmap *diresidue_scores = convert_probabilities_to_scores(diresidue_probabilities);
+    hashmap_delete(diresidue_probabilities, NULL);
+
+    // Compute optimal score for this RVD sequence
+    double best_score = get_best_score(rvdseq, diresidue_scores);
+
+    // Determine number of sequences in file
+    sprintf(cmd, "grep '^>' %s | wc -l", seqfilename);
+    FILE *in = popen(cmd, "r");
+    if(!in)
     {
-      while(j <= i)
+      perror("Error: unable to check fasta file size\n");
+      logger(log_file, "Error: unable to check fasta file size");
+      return 1;
+    }
+    fgets(line, sizeof(line), in);
+    pclose(in);
+    seqnum = atoi(line);
+
+    // Begin processing
+
+    int abort = 0;
+
+    omp_set_num_threads(numprocs);
+    #pragma omp parallel private(i, j, seq, seqfile, rank)
+    {
+
+      rank = omp_get_thread_num();
+
+      // Open genomic sequence file
+      seqfile = gzopen(seqfilename, "r");
+      if(!seqfile)
       {
-        int result = kseq_read(seq);
-        if(result < 0)
-        {
-          fprintf(stderr, "Error: problem parsing data from '%s'\n", seqfilename);
-          exit(1);
-        }
-        j++;
+        logger(log_file, "Error: unable to open sequence '%s'", seqfilename);
+        abort = 1;
+
+      } else {
+
+          seq = kseq_init(seqfile);
+
+          j = 0;
+          #pragma omp for schedule(static)
+          for(i = 0; i < seqnum; i++)
+          {
+
+              #pragma omp flush (abort)
+              if (!abort) {
+                  while(j <= i)
+                  {
+                      int result = kseq_read(seq);
+                      if(result < 0)
+                      {
+                          logger(log_file, "Error: problem parsing data from '%s'", seqfilename);
+                          abort = 1;
+                      }
+                      j++;
+                  }
+
+                  logger(log_file, "Scanning %s for binding sites (length %ld)", seq->name.s, seq->seq.l);
+                  find_binding_sites(seq, rvdseq, diresidue_scores, best_score * cutoff, forwardonly, results);
+
+              }
+
+          }
+
+          kseq_destroy(seq);
+          gzclose(seqfile);
+
       }
 
-      fprintf(stderr, "  Processor %d working on sequence '%s' (length %ld)\n", rank, seq->name.s, seq->seq.l);
-      find_binding_sites(seq, rvdseq, diresidue_scores, best_score * x, forwardonly, results);
+    }
+
+    if(!abort) {
+
+        qsort(results->data, array_size(results), sizeof(BindingSite *), binding_site_compare_score);
+
+        int results_result;
+
+        results_result = print_results(results, sourcestr, rvdseq, best_score, forwardonly, output_filepath, log_file, create_tabfile);
+
+        logger(log_file, "Finished");
+
+        if(results_result == 1) {
+            abort = 1;
+        }
 
     }
 
-    kseq_destroy(seq);
-    gzclose(seqfile);
+    // Free memory
 
-  }
+    if(results) {
 
-  qsort(results->data, array_size(results), sizeof(BindingSite *), binding_site_compare_score);
+        for(i = 0; i < array_size(results); i++)
+        {
+            BindingSite *site = (BindingSite *)array_get(results, i);
 
-  print_results(results, sourcestr, rvdseq, best_score, forwardonly, output_filepath, create_tabfile);
+            free(site->sequence);
+            free(site->sequence_name);
+            free(site);
 
-  // Free memory
+        }
 
-  free(output_filepath);
-  for(i = 0; i < array_size(results); i++)
-  {
-      BindingSite *site = (BindingSite *)array_get(results, i);
+        array_delete(results);
 
-      free(site->sequence);
-      free(site->sequence_name);
-      free(site);
-
-  }
-
-  array_delete(results);
+    }
 
 
-  for(i = 0; i < array_size(rvdseq); i++)
-  {
-    char *temp = (char *)array_get(rvdseq, i);
-    free(temp);
-  }
+    if(rvdseq) {
+
+        for(i = 0; i < array_size(rvdseq); i++)
+        {
+            char *temp = (char *)array_get(rvdseq, i);
+            free(temp);
+        }
 
 
-  array_delete(rvdseq);
-  hashmap_delete(diresidue_scores, free);
+        array_delete(rvdseq);
 
-  return 0;
+    }
+
+    if(diresidue_scores) {
+        hashmap_delete(diresidue_scores, free);
+    }
+
+    if(log_file != stdout) {
+        fclose(log_file);
+    }
+
+    if(abort) {
+        return 1;
+    } else {
+        return 0;
+    }
 }
