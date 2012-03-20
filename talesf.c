@@ -57,12 +57,13 @@ int binding_site_compare_score(const void * a, const void * b)
 
 }
 
-int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_score, int forwardonly, char *output_filepath, FILE *log_file) {
+int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_score, int forwardonly, char *output_filepath, FILE *log_file, int is_genome) {
 
   int num_rvds = array_size(rvdseq);
   char *plus_strand_sequence;
   FILE *gff_out_file = NULL;
   FILE *tab_out_file = NULL;
+  FILE *bed_out_file = NULL;
 
   size_t output_filepath_length;
   char* temp_output_filepath;
@@ -95,16 +96,24 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
     memset(temp_output_filepath, '\0', output_filepath_length);
     sprintf(temp_output_filepath, "%s.gff3", output_filepath);
     gff_out_file = fopen(temp_output_filepath, "w");
+
+    if(is_genome) {
+      memset(temp_output_filepath, '\0', output_filepath_length);
+      sprintf(temp_output_filepath, "%s.bed", output_filepath);
+      bed_out_file = fopen(temp_output_filepath, "w");
+    }
+
     free(temp_output_filepath);
 
   }
 
-  if(!gff_out_file || !tab_out_file)
+  if(!gff_out_file || !tab_out_file || (is_genome && !bed_out_file))
   {
     fprintf(log_file, "Error: unable to open output file '%s'\n", output_filepath);
     return 1;
   }
 
+  // Tab file header
   if (forwardonly)
   {
     fprintf(tab_out_file, "table_ignores:Plus strand sequence\n");
@@ -113,7 +122,7 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
   fprintf(tab_out_file, "Best Possible Score:%.2lf\n", best_score);
   fprintf(tab_out_file, "Genome Coordinates\tStrand\tScore\tTarget Sequence\tPlus strand sequence\n");
 
-
+  // GFF file header
   fprintf(gff_out_file, "##gff-version 3\n");
 
   if (forwardonly)
@@ -126,6 +135,12 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
   }
 
   fprintf(gff_out_file, "#Best Possible Score:%.2lf\n", best_score);
+
+  // bed file header
+
+  if(is_genome) {
+    fprintf(bed_out_file, "track name=\"TAL Targets\" description=\"Targets for RVD sequence %s\" visibility=2 useScore=1\n", rvdstring);
+  }
 
   for(i = 0; i < array_size(results); i++)
   {
@@ -173,6 +188,15 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
              site->sequence_name, sourcestr, "TAL_effector_binding_site", site->index + 1,
              site->index + num_rvds, site->score, strand, rvdstring, sequence, plus_strand_sequence);
 
+    if(is_genome && i < 10000) {
+
+      // bed file is used for upload to ensembl which has a maximum filesize of 5MB
+      int bed_score = floorf((best_score / site->score * 1000) + 0.5);
+      fprintf( bed_out_file,"%s\t%lu\t%lu\tsite%d\t%d\t%c\n",
+               site->sequence_name, site->index, site->index + num_rvds - 1, i, bed_score, strand);
+
+    }
+
     if(plus_strand_sequence != sequence) {
       free(sequence);
     }
@@ -182,6 +206,10 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
   free(rvdstring);
   fclose(gff_out_file);
   fclose(tab_out_file);
+
+  if(is_genome) {
+    fclose(bed_out_file);
+  }
 
   return 0;
 
@@ -458,7 +486,7 @@ void logger(FILE* log_file, char* message, ...) {
 
 }
 
-int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, char *log_filepath, double weight, double cutoff, int forwardonly, int numprocs) {
+int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, char *log_filepath, double weight, double cutoff, int forwardonly, int numprocs, int is_genome) {
 
   char sourcestr[128];
 
@@ -472,7 +500,7 @@ int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, c
   FILE *log_file = stdout;
 
   if(log_filepath) {
-    log_file = fopen(log_filepath, "w");
+    log_file = fopen(log_filepath, "a");
   }
 
   if(!seqfilename || !rvdstring || !output_filepath) {
@@ -573,7 +601,7 @@ int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, c
 
     int print_results_result;
 
-    print_results_result = print_results(results, sourcestr, rvdseq, best_score, forwardonly, output_filepath, log_file);
+    print_results_result = print_results(results, sourcestr, rvdseq, best_score, forwardonly, output_filepath, log_file, is_genome);
 
     logger(log_file, "Finished");
 
