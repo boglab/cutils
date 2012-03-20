@@ -42,11 +42,14 @@ int binding_site_compare_score(const void * a, const void * b)
   BindingSite *real_a = *((BindingSite **)a);
   BindingSite *real_b = *((BindingSite **)b);
 
-  double score_diff = ((real_a->score) - (real_b->score));
+  double real_a_score = floorf(real_a->score * 100 + 0.5) / 100;
+  double real_b_score = floorf(real_b->score * 100 + 0.5) / 100;
 
-  if(score_diff < -0.01) {
+  double score_diff = (real_a_score - real_b_score);
+
+  if(score_diff < 0) {
     return -1;
-  } else if(score_diff > 0.01) {
+  } else if(score_diff > 0) {
     return 1;
   } else {
     return 0;
@@ -57,8 +60,6 @@ int binding_site_compare_score(const void * a, const void * b)
 int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_score, int forwardonly, char *output_filepath, FILE *log_file, int create_tabfile) {
 
     int num_rvds = array_size(rvdseq);
-    char strand = '+';
-    char *tab_strand = "Plus";
     char *plus_strand_sequence;
     FILE *gff_out_file = NULL;
     FILE *tab_out_file = NULL;
@@ -143,6 +144,8 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
 
       BindingSite *site = (BindingSite *)array_get(results, i);
       char *sequence = site->sequence;
+      char strand = '+';
+      char *tab_strand = "Plus";
 
       if(site->strand > 0)
         plus_strand_sequence = sequence;
@@ -181,9 +184,9 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
                    site->sequence_name, tab_strand, site->score, site->index + 1, sequence, plus_strand_sequence);
       }
 
-      fprintf( gff_out_file, "%s\t%s\t%s\t%lu\t%lu\t%.2lf\t%c\t.\trvd_sequence=%s;target_sequence=%s;\n",
+      fprintf( gff_out_file, "%s\t%s\t%s\t%lu\t%lu\t%.2lf\t%c\t.\trvd_sequence=%s;target_sequence=%s;plus_strand_sequence=%s;\n",
                site->sequence_name, sourcestr, "TAL_effector_binding_site", site->index + 1,
-               site->index + num_rvds, site->score, strand, rvdstring, sequence);
+               site->index + num_rvds, site->score, strand, rvdstring, sequence, plus_strand_sequence);
 
       if(plus_strand_sequence != sequence) {
           free(sequence);
