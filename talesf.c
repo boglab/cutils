@@ -57,18 +57,21 @@ int binding_site_compare_score(const void * a, const void * b)
 
 }
 
-int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_score, int forwardonly, char *output_filepath, FILE *log_file, int is_genome) {
+int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_score, int forwardonly, char *output_filepath, FILE *log_file, char *organism_name) {
 
   int num_rvds = array_size(rvdseq);
   char *plus_strand_sequence;
   FILE *gff_out_file = NULL;
   FILE *tab_out_file = NULL;
-  FILE *bed_out_file = NULL;
+  FILE *genome_browser_file = NULL;
 
   size_t output_filepath_length;
   char* temp_output_filepath;
 
   char *rvdstring = calloc(3 * num_rvds, sizeof(char));
+
+  int is_genome = (*organism_name != '\0');
+  int genome_using_gbrowse = (is_genome && (strcmp(organism_name, "oryza_sativa") == 0 || strcmp(organism_name, "arabidopsis_thaliana") == 0));
 
   int i;
 
@@ -83,6 +86,7 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
   rvdstring[3*num_rvds - 1] = '\0';
 
   if(output_filepath == NULL) {
+
     gff_out_file = stdout;
 
   } else {
@@ -99,15 +103,23 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
 
     if(is_genome) {
       memset(temp_output_filepath, '\0', output_filepath_length);
-      sprintf(temp_output_filepath, "%s.bed", output_filepath);
-      bed_out_file = fopen(temp_output_filepath, "w");
+
+      if(genome_using_gbrowse) {
+        sprintf(temp_output_filepath, "%s.gff", output_filepath);
+      } else {
+        sprintf(temp_output_filepath, "%s.bed", output_filepath);
+      }
+
+      genome_browser_file = fopen(temp_output_filepath, "w");
+
+
     }
 
     free(temp_output_filepath);
 
   }
 
-  if(!gff_out_file || !tab_out_file || (is_genome && !bed_out_file))
+  if(!gff_out_file || !tab_out_file || (is_genome && !genome_browser_file))
   {
     fprintf(log_file, "Error: unable to open output file '%s'\n", output_filepath);
     return 1;
@@ -120,7 +132,7 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
   }
 
   fprintf(tab_out_file, "Best Possible Score:%.2lf\n", best_score);
-  fprintf(tab_out_file, "Genome Coordinates\tStrand\tScore\tTarget Sequence\tPlus strand sequence\n");
+  fprintf(tab_out_file, "Sequence Name\tStrand\tScore\tStart Position\tTarget Sequence\tPlus strand sequence\n");
 
   // GFF file header
   fprintf(gff_out_file, "##gff-version 3\n");
@@ -138,8 +150,11 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
 
   // bed file header
 
-  if(is_genome) {
-    fprintf(bed_out_file, "track name=\"TAL Targets\" description=\"Targets for RVD sequence %s\" visibility=2 useScore=1\n", rvdstring);
+  if(genome_using_gbrowse) {
+    fprintf(genome_browser_file, "##gff-version 3\n");
+  }
+  else if(is_genome) {
+    fprintf(genome_browser_file, "track name=\"TAL Targets\" description=\"Targets for RVD sequence %s\" visibility=2 useScore=1\n", rvdstring);
   }
 
   for(i = 0; i < array_size(results); i++)
@@ -190,10 +205,19 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
 
     if(is_genome && i < 10000) {
 
-      // bed file is used for upload to ensembl which has a maximum filesize of 5MB
-      int bed_score = floorf((best_score / site->score * 1000) + 0.5);
-      fprintf( bed_out_file,"%s\t%lu\t%lu\tsite%d\t%d\t%c\n",
-               site->sequence_name, site->index, site->index + num_rvds - 1, i, bed_score, strand);
+      if(genome_using_gbrowse) {
+
+        fprintf( genome_browser_file, "chr%s\t%s\t%s\t%lu\t%lu\t%.2lf\t%c\t.\tName=site%d;\n",
+                 site->sequence_name, sourcestr, "TAL_effector_binding_site", site->index + 1,
+                 site->index + num_rvds, site->score, strand, i);
+
+      } else {
+
+        int bed_score = floorf((best_score / site->score * 1000) + 0.5);
+        fprintf( genome_browser_file,"%s\t%lu\t%lu\tsite%d\t%d\t%c\n",
+                 site->sequence_name, site->index, site->index + num_rvds - 1, i, bed_score, strand);
+
+      }
 
     }
 
@@ -208,7 +232,7 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
   fclose(tab_out_file);
 
   if(is_genome) {
-    fclose(bed_out_file);
+    fclose(genome_browser_file);
   }
 
   return 0;
@@ -216,7 +240,7 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
 }
 
 // Identify and print out TAL effector binding sites
-void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, double cutoff, int forwardonly, Array *results)
+void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, double cutoff, int forwardonly, int c_upstream, Array *results)
 {
   unsigned long i, j;
   int num_rvds = array_size(rvdseq);
@@ -232,7 +256,7 @@ void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, d
 
   for(i = 1; i <= seq->seq.l - num_rvds; i++)
   {
-    if(seq->seq.s[i-1] == 'T' || seq->seq.s[i-1] == 't')
+    if((c_upstream > 0 && (seq->seq.s[i-1] == 'C' || seq->seq.s[i-1] == 'c')) || (c_upstream != 1 && (seq->seq.s[i-1] == 'T' || seq->seq.s[i-1] == 't')))
     {
       double cumscore = 0.0;
       for(j = 0; j < num_rvds; j++)
@@ -281,7 +305,7 @@ void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, d
 
     if(!forwardonly)
     {
-      if(seq->seq.s[i + num_rvds - 1] == 'A' || seq->seq.s[i + num_rvds - 1] == 'a')
+      if((c_upstream > 0 && (seq->seq.s[i + num_rvds - 1] == 'G' || seq->seq.s[i + num_rvds - 1] == 'g')) || (c_upstream != 1 && (seq->seq.s[i + num_rvds - 1] == 'A' || seq->seq.s[i + num_rvds - 1] == 'a')))
       {
         double cumscore = 0.0;
         for(j = 0; j < num_rvds; j++)
@@ -355,7 +379,7 @@ int *int_array(int a, int c, int g, int t)
 }
 
 // Compute diresidue probabilities from observed counts
-Hashmap *get_diresidue_probabilities(double w)
+Hashmap *get_diresidue_probabilities(Array *rvdseq, double w)
 {
   char **diresidues;
   Hashmap *diresidue_counts, *diresidue_probabilities;
@@ -389,6 +413,14 @@ Hashmap *get_diresidue_probabilities(double w)
   hashmap_add(diresidue_counts, "SS", int_array(1, 1, 1, 1));
   hashmap_add(diresidue_counts, "NC", int_array(1, 1, 1, 1));
   hashmap_add(diresidue_counts, "HH", int_array(1, 1, 1, 1));
+
+  // Add any other RVDs in the sequence with equal weight
+  for(i = 0; i < array_size(rvdseq); i++)
+  {
+    char *rvd = array_get(rvdseq, i);
+    // hashmap_add doesn't do anything for existing key, only adds new ones
+    hashmap_add(diresidue_counts, rvd, int_array(1, 1, 1, 1));
+  }
 
   diresidue_probabilities = hashmap_new(64);
   diresidues = hashmap_keys(diresidue_counts);
@@ -486,7 +518,7 @@ void logger(FILE* log_file, char* message, ...) {
 
 }
 
-int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, char *log_filepath, double weight, double cutoff, int forwardonly, int numprocs, int is_genome) {
+int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, char *log_filepath, double weight, double cutoff, int forwardonly, int c_upstream, int numprocs, char *organism_name) {
 
   char sourcestr[128];
 
@@ -499,7 +531,7 @@ int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, c
 
   FILE *log_file = stdout;
 
-  if(log_filepath) {
+  if(log_filepath && strcmp(log_filepath, "NA") != 0) {
     log_file = fopen(log_filepath, "a");
   }
 
@@ -521,7 +553,7 @@ int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, c
   }
 
   // Get RVD/bp matching scores
-  Hashmap *diresidue_probabilities = get_diresidue_probabilities(weight);
+  Hashmap *diresidue_probabilities = get_diresidue_probabilities(rvdseq, weight);
   Hashmap *diresidue_scores = convert_probabilities_to_scores(diresidue_probabilities);
   hashmap_delete(diresidue_probabilities, NULL);
 
@@ -582,7 +614,7 @@ int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, c
           }
 
           logger(log_file, "Scanning %s for binding sites (length %ld)", seq->name.s, seq->seq.l);
-          find_binding_sites(seq, rvdseq, diresidue_scores, best_score * cutoff, forwardonly, results);
+          find_binding_sites(seq, rvdseq, diresidue_scores, best_score * cutoff, forwardonly, c_upstream, results);
 
         }
 
@@ -601,7 +633,7 @@ int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, c
 
     int print_results_result;
 
-    print_results_result = print_results(results, sourcestr, rvdseq, best_score, forwardonly, output_filepath, log_file, is_genome);
+    print_results_result = print_results(results, sourcestr, rvdseq, best_score, forwardonly, output_filepath, log_file, organism_name);
 
     logger(log_file, "Finished");
 
