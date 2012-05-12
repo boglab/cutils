@@ -23,19 +23,18 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 TALESF is a C program for identifying potential binding sites for transcription
 activator-like (TAL) effectors in a given genomic sequence. Compiling and
 running this program requires a C compiler with OpenMP support (such as GCC 4.2
-or higher). To compile TALESF, enter the following command in the directory
+or higher). To compile TALESF, enter the following commands in the directory
 containing this file.
 
-  gcc -Wall -O3 -m64 -o talesf *.c -lm -lz -fopenmp
+  make
+  make install
 
 For a descriptive usage statement, enter the following command.
 
   ./talesf -h
 
-By default, the output data is sorted by genomic position. If multiple
-processors are used, binding sites from different sequences will be
-interspersed in the output. The 'sortfilter' script is provided as a tool for
-(surprise!) sorting and filtering output from TALESF. For a descriptive usage
-statement, enter the following command.
+By default, the output data is sorted by genomic position.The 'sortfilter' script
+is provided as a tool for (surprise!) sorting and filtering output from TALESF.
+For a descriptive usage statement, enter the following command.
 
   ./sortfilter -h

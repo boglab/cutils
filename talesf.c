@@ -170,14 +170,16 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
     else
     {
       int j;
+      int seq_len = num_rvds + 2;
+
 
       plus_strand_sequence = sequence;
-      sequence = malloc(sizeof(char)*(num_rvds+1));
-      sequence[num_rvds] = '\0';
+      sequence = malloc(sizeof(char)*(seq_len+1));
+      sequence[seq_len] = '\0';
 
-      for(j = 0; j < num_rvds; j++)
+      for(j = 0; j < seq_len; j++)
       {
-        char base = site->sequence[num_rvds - j - 1];
+        char base = site->sequence[seq_len - j - 1];
         if(base == 'A' || base == 'a')
           sequence[j] = 'T';
         else if(base == 'C' || base == 'c')
@@ -186,6 +188,8 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
           sequence[j] = 'C';
         else if(base == 'T' || base == 't')
           sequence[j] = 'A';
+        else if(base == ' ')
+          sequence[j] = ' ';
         else
         {
           fprintf(stderr, "Error: unexpected character '%c'\n", base);
@@ -284,15 +288,17 @@ void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, d
 
         BindingSite *site = malloc(sizeof(BindingSite));
 
-        site->sequence = calloc(num_rvds + 1, sizeof(char));
+        site->sequence = calloc(num_rvds + 2 + 1, sizeof(char));
         site->sequence_name = calloc(seq_name_len + 1, sizeof(char));
-        site->sequence[num_rvds] = '\0';
+        site->sequence[num_rvds + 2] = '\0';
         site->sequence_name[seq_name_len] = '\0';
 
         site->strand = 1;
         site->index = i;
 
-        strncpy(site->sequence, seq->seq.s + site->index, num_rvds);
+        strncpy(site->sequence, seq->seq.s + site->index - 1, 1);
+        site->sequence[1] = ' ';
+        strncpy(site->sequence + 2, seq->seq.s + site->index, num_rvds);
         strncpy(site->sequence_name, seq->name.s, seq_name_len);
 
         site->score = cumscore;
@@ -333,15 +339,17 @@ void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, d
 
           BindingSite *site = malloc(sizeof(BindingSite));
 
-          site->sequence = calloc(num_rvds + 1, sizeof(char));
+          site->sequence = calloc(num_rvds + 2 + 1, sizeof(char));
           site->sequence_name = calloc(seq_name_len + 1, sizeof(char));
-          site->sequence[num_rvds] = '\0';
+          site->sequence[num_rvds + 2] = '\0';
           site->sequence_name[seq_name_len] = '\0';
 
           site->strand = -1;
           site->index = i - 1;
 
           strncpy(site->sequence, seq->seq.s + site->index, num_rvds);
+          site->sequence[num_rvds] = ' ';
+          strncpy(site->sequence + num_rvds + 1, seq->seq.s + site->index + num_rvds, 1);
           strncpy(site->sequence_name, seq->name.s, seq_name_len);
 
           site->score = cumscore;
@@ -389,6 +397,7 @@ Hashmap *get_diresidue_probabilities(Array *rvdseq, double w)
   diresidue_counts = hashmap_new(64);
 
   // Add known counts
+  // The int_array provides counts in the order A C G T
   hashmap_add(diresidue_counts, "HD", int_array( 7, 99,  0,  1));
   hashmap_add(diresidue_counts, "NI", int_array(58,  6,  0,  0));
   hashmap_add(diresidue_counts, "NG", int_array( 6,  6,  1, 57));
