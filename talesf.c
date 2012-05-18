@@ -535,7 +535,21 @@ void find_binding_sites(kseq_t *seq, Array *rvdseq, Hashmap *diresidue_scores, d
 
 }
 
-int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, char *log_filepath, double weight, double cutoff, int forwardonly, int c_upstream, int numprocs, char *organism_name) {
+int run_talesf_task(Hashmap *kwargs) {
+
+  // Options
+  char *seq_filename = hashmap_get(kwargs, "seq_filename");
+  char *rvd_string = hashmap_get(kwargs, "rvd_string");
+  char *output_filepath = hashmap_get(kwargs, "output_filepath");
+  char *log_filepath = hashmap_get(kwargs, "log_filepath");
+  char *organism_name = hashmap_get(kwargs, "organism_name");
+
+  double weight = *(hashmap_get(kwargs, "weight"));
+  double cutoff = *(hashmap_get(kwargs, "cutoff"));
+
+  int forward_only = *((int *) hashmap_get(kwargs, "forward_only"));
+  int c_upstream = *((int *) hashmap_get(kwargs, "c_upstream"));
+  int numprocs = *((int *) hashmap_get(kwargs, "num_procs"));
 
   char sourcestr[128];
 
@@ -552,7 +566,7 @@ int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, c
     log_file = fopen(log_filepath, "a");
   }
 
-  if(!seqfilename || !rvdstring || !output_filepath) {
+  if(!seq_filename || !rvd_string || !output_filepath) {
     logger(log_file, "Error: One or more arguments to run_talesf_task was null");
     return 1;
   }
@@ -561,7 +575,7 @@ int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, c
   Array *results = array_new( sizeof(BindingSite *) );
 
   rvdseq = array_new( sizeof(char *) );
-  tok = strtok(rvdstring, " _");
+  tok = strtok(rvd_string, " _");
   while(tok != NULL)
   {
     char *r = strdup(tok);
@@ -578,7 +592,7 @@ int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, c
   double best_score = get_best_score(rvdseq, diresidue_scores);
 
   // Determine number of sequences in file
-  sprintf(cmd, "grep '^>' %s | wc -l", seqfilename);
+  sprintf(cmd, "grep '^>' %s | wc -l", seq_filename);
   FILE *in = popen(cmd, "r");
   if(!in)
   {
@@ -601,11 +615,11 @@ int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, c
     rank = omp_get_thread_num();
 
     // Open genomic sequence file
-    seqfile = gzopen(seqfilename, "r");
+    seqfile = gzopen(seq_filename, "r");
     if(!seqfile)
     {
 
-      logger(log_file, "Error: unable to open sequence '%s'", seqfilename);
+      logger(log_file, "Error: unable to open sequence '%s'", seq_filename);
       abort = 1;
 
     } else {
@@ -624,14 +638,14 @@ int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, c
             int result = kseq_read(seq);
             if(result < 0)
             {
-              logger(log_file, "Error: problem parsing data from '%s'", seqfilename);
+              logger(log_file, "Error: problem parsing data from '%s'", seq_filename);
               abort = 1;
             }
             j++;
           }
 
           logger(log_file, "Scanning %s for binding sites (length %ld)", seq->name.s, seq->seq.l);
-          find_binding_sites(seq, rvdseq, diresidue_scores, best_score * cutoff, forwardonly, c_upstream, results);
+          find_binding_sites(seq, rvdseq, diresidue_scores, best_score * cutoff, forward_only, c_upstream, results);
 
         }
 
@@ -650,7 +664,7 @@ int run_talesf_task(char *seqfilename, char *rvdstring, char *output_filepath, c
 
     int print_results_result;
 
-    print_results_result = print_results(results, sourcestr, rvdseq, best_score, forwardonly, output_filepath, log_file, organism_name);
+    print_results_result = print_results(results, sourcestr, rvdseq, best_score, forward_only, output_filepath, log_file, organism_name);
 
     logger(log_file, "Finished");
 
