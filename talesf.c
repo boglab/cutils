@@ -544,8 +544,8 @@ int run_talesf_task(Hashmap *kwargs) {
   char *log_filepath = hashmap_get(kwargs, "log_filepath");
   char *organism_name = hashmap_get(kwargs, "organism_name");
 
-  double weight = *(hashmap_get(kwargs, "weight"));
-  double cutoff = *(hashmap_get(kwargs, "cutoff"));
+  double weight = *((double *) hashmap_get(kwargs, "weight"));
+  double cutoff = *((double *) hashmap_get(kwargs, "cutoff"));
 
   int forward_only = *((int *) hashmap_get(kwargs, "forward_only"));
   int c_upstream = *((int *) hashmap_get(kwargs, "c_upstream"));
