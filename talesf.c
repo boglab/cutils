@@ -204,6 +204,37 @@ void logger(FILE* log_file, char* message, ...) {
 
 }
 
+void create_options_string(char *options_str, char *rvd_str, Hashmap *prog_kwargs) {
+
+  char cutoff_str[32];
+
+  double cutoff = *((double *) hashmap_get(prog_kwargs, "cutoff"));
+  int forward_only = *((int *) hashmap_get(prog_kwargs, "forward_only"));
+  int c_upstream = *((int *) hashmap_get(prog_kwargs, "c_upstream"));
+
+  strcat(options_str, "options_used:");
+
+  if (!forward_only) {
+    strcat(options_str, "search reverse complement, ");
+  }
+
+  strcat(options_str, "upstream_base = ");
+
+  if (c_upstream != 1) {
+    strcat(options_str, "T ");
+  }
+
+  if (c_upstream != 0) {
+    strcat(options_str, "C ");
+  }
+
+  sprintf(cutoff_str, ", cutoff = %.2lf, ", cutoff);
+  strcat(options_str, cutoff_str);
+
+  sprintf(options_str, "RVDS = %s", rvd_str);
+
+}
+
 /*
  * Core
  */
@@ -228,9 +259,15 @@ int binding_site_compare_score(const void * a, const void * b)
 
 }
 
-int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_score, int forwardonly, char *output_filepath, FILE *log_file, char *organism_name) {
+int print_results(Array *results, Array *rvd_seq, Hashmap *prog_kwargs, double best_score, char *output_filepath, FILE *log_file) {
 
-  int num_rvds = array_size(rvdseq);
+  int forward_only = *((int *) hashmap_get(prog_kwargs, "forward_only"));
+  char *organism_name = hashmap_get(prog_kwargs, "organism_name");
+
+  char *source_str = "TALESF";
+  char options_str[512];
+
+  int num_rvds = array_size(rvd_seq);
   char *plus_strand_sequence;
   FILE *gff_out_file = NULL;
   FILE *tab_out_file = NULL;
@@ -239,7 +276,7 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
   size_t output_filepath_length;
   char* temp_output_filepath;
 
-  char *rvdstring = calloc(3 * num_rvds, sizeof(char));
+  char *rvd_str = calloc(3 * num_rvds, sizeof(char));
 
   int is_genome = (*organism_name != '\0');
   int genome_using_gbrowse = (is_genome && (strcmp(organism_name, "oryza_sativa") == 0 || strcmp(organism_name, "arabidopsis_thaliana") == 0));
@@ -248,13 +285,15 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
 
   for(i = 0; i < num_rvds; i++)
   {
-    char *rvd = array_get(rvdseq, i);
+    char *rvd = array_get(rvd_seq, i);
     if(i == 0)
-      strncpy(rvdstring, rvd, 2);
+      strncpy(rvd_str, rvd, 2);
     else
-      sprintf(rvdstring + (i*3)-1, "_%s", rvd);
+      sprintf(rvd_str + (i*3)-1, "_%s", rvd);
   }
-  rvdstring[3*num_rvds - 1] = '\0';
+  rvd_str[3*num_rvds - 1] = '\0';
+
+  create_options_string(options_str, rvd_str, prog_kwargs);
 
   if(output_filepath == NULL) {
 
@@ -297,10 +336,12 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
   }
 
   // Tab file header
-  if (forwardonly)
+  if (forward_only)
   {
     fprintf(tab_out_file, "table_ignores:Plus strand sequence\n");
   }
+
+  fprintf(tab_out_file, options_str);
 
   fprintf(tab_out_file, "Best Possible Score:%.2lf\n", best_score);
   fprintf(tab_out_file, "Sequence Name\tStrand\tScore\tStart Position\tTarget Sequence\tPlus strand sequence\n");
@@ -308,7 +349,7 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
   // GFF file header
   fprintf(gff_out_file, "##gff-version 3\n");
 
-  if (forwardonly)
+  if (forward_only)
   {
     fprintf(gff_out_file, "#table_display_tags:target_sequence\n");
   }
@@ -316,6 +357,8 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
   {
     fprintf(gff_out_file, "#table_display_tags:target_sequence,plus_strand_sequence\n");
   }
+
+  fprintf(gff_out_file, "#%s", options_str);
 
   fprintf(gff_out_file, "#Best Possible Score:%.2lf\n", best_score);
 
@@ -325,7 +368,7 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
     fprintf(genome_browser_file, "##gff-version 3\n");
   }
   else if(is_genome) {
-    fprintf(genome_browser_file, "track name=\"TAL Targets\" description=\"Targets for RVD sequence %s\" visibility=2 useScore=1\n", rvdstring);
+    fprintf(genome_browser_file, "track name=\"TAL Targets\" description=\"Targets for RVD sequence %s\" visibility=2 useScore=1\n", rvd_str);
   }
 
   for(i = 0; i < array_size(results); i++)
@@ -375,15 +418,15 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
              site->sequence_name, tab_strand, site->score, site->index + 1, sequence, plus_strand_sequence);
 
     fprintf( gff_out_file, "%s\t%s\t%s\t%lu\t%lu\t%.2lf\t%c\t.\trvd_sequence=%s;target_sequence=%s;plus_strand_sequence=%s;\n",
-             site->sequence_name, sourcestr, "TAL_effector_binding_site", site->index + 1,
-             site->index + num_rvds, site->score, strand, rvdstring, sequence, plus_strand_sequence);
+             site->sequence_name, source_str, "TAL_effector_binding_site", site->index + 1,
+             site->index + num_rvds, site->score, strand, rvd_str, sequence, plus_strand_sequence);
 
     if(is_genome && i < 10000) {
 
       if(genome_using_gbrowse) {
 
         fprintf( genome_browser_file, "chr%s\t%s\t%s\t%lu\t%lu\t%.2lf\t%c\t.\tName=site%d;\n",
-                 site->sequence_name, sourcestr, "TAL_effector_binding_site", site->index + 1,
+                 site->sequence_name, source_str, "TAL_effector_binding_site", site->index + 1,
                  site->index + num_rvds, site->score, strand, i);
 
       } else {
@@ -402,7 +445,7 @@ int print_results(Array *results, char *sourcestr, Array* rvdseq, double best_sc
 
   }
 
-  free(rvdstring);
+  free(rvd_str);
   fclose(gff_out_file);
   fclose(tab_out_file);
 
@@ -542,7 +585,6 @@ int run_talesf_task(Hashmap *kwargs) {
   char *rvd_string = hashmap_get(kwargs, "rvd_string");
   char *output_filepath = hashmap_get(kwargs, "output_filepath");
   char *log_filepath = hashmap_get(kwargs, "log_filepath");
-  char *organism_name = hashmap_get(kwargs, "organism_name");
 
   double weight = *((double *) hashmap_get(kwargs, "weight"));
   double cutoff = *((double *) hashmap_get(kwargs, "cutoff"));
@@ -551,14 +593,12 @@ int run_talesf_task(Hashmap *kwargs) {
   int c_upstream = *((int *) hashmap_get(kwargs, "c_upstream"));
   int numprocs = *((int *) hashmap_get(kwargs, "num_procs"));
 
-  char sourcestr[128];
-
   // Program variable domain
-  Array *rvdseq;
+  Array *rvd_seq;
   char *tok, cmd[256], line[32];
   gzFile seqfile;
   kseq_t *seq;
-  int i, j, seqnum, rank;
+  int i, j, seq_num;
 
   FILE *log_file = stdout;
 
@@ -571,25 +611,24 @@ int run_talesf_task(Hashmap *kwargs) {
     return 1;
   }
 
-  strcpy(sourcestr, "TALESF");
   Array *results = array_new( sizeof(BindingSite *) );
 
-  rvdseq = array_new( sizeof(char *) );
+  rvd_seq = array_new( sizeof(char *) );
   tok = strtok(rvd_string, " _");
   while(tok != NULL)
   {
     char *r = strdup(tok);
-    array_add(rvdseq, r);
+    array_add(rvd_seq, r);
     tok = strtok(NULL, " _");
   }
 
   // Get RVD/bp matching scores
-  Hashmap *diresidue_probabilities = get_diresidue_probabilities(rvdseq, weight);
+  Hashmap *diresidue_probabilities = get_diresidue_probabilities(rvd_seq, weight);
   Hashmap *diresidue_scores = convert_probabilities_to_scores(diresidue_probabilities);
   hashmap_delete(diresidue_probabilities, NULL);
 
   // Compute optimal score for this RVD sequence
-  double best_score = get_best_score(rvdseq, diresidue_scores);
+  double best_score = get_best_score(rvd_seq, diresidue_scores);
 
   // Determine number of sequences in file
   sprintf(cmd, "grep '^>' %s | wc -l", seq_filename);
@@ -602,17 +641,15 @@ int run_talesf_task(Hashmap *kwargs) {
   }
   fgets(line, sizeof(line), in);
   pclose(in);
-  seqnum = atoi(line);
+  seq_num = atoi(line);
 
   // Begin processing
 
   int abort = 0;
 
   omp_set_num_threads(numprocs);
-  #pragma omp parallel private(i, j, seq, seqfile, rank)
+  #pragma omp parallel private(i, j, seq, seqfile)
   {
-
-    rank = omp_get_thread_num();
 
     // Open genomic sequence file
     seqfile = gzopen(seq_filename, "r");
@@ -628,7 +665,7 @@ int run_talesf_task(Hashmap *kwargs) {
 
       j = 0;
       #pragma omp for schedule(static)
-      for(i = 0; i < seqnum; i++)
+      for(i = 0; i < seq_num; i++)
       {
 
         #pragma omp flush (abort)
@@ -645,7 +682,7 @@ int run_talesf_task(Hashmap *kwargs) {
           }
 
           logger(log_file, "Scanning %s for binding sites (length %ld)", seq->name.s, seq->seq.l);
-          find_binding_sites(seq, rvdseq, diresidue_scores, best_score * cutoff, forward_only, c_upstream, results);
+          find_binding_sites(seq, rvd_seq, diresidue_scores, best_score * cutoff, forward_only, c_upstream, results);
 
         }
 
@@ -664,7 +701,7 @@ int run_talesf_task(Hashmap *kwargs) {
 
     int print_results_result;
 
-    print_results_result = print_results(results, sourcestr, rvdseq, best_score, forward_only, output_filepath, log_file, organism_name);
+    print_results_result = print_results(results, rvd_seq, kwargs, best_score, output_filepath, log_file);
 
     logger(log_file, "Finished");
 
@@ -693,16 +730,16 @@ int run_talesf_task(Hashmap *kwargs) {
   }
 
 
-  if(rvdseq) {
+  if(rvd_seq) {
 
-    for(i = 0; i < array_size(rvdseq); i++)
+    for(i = 0; i < array_size(rvd_seq); i++)
     {
-      char *temp = (char *)array_get(rvdseq, i);
+      char *temp = (char *)array_get(rvd_seq, i);
       free(temp);
     }
 
 
-    array_delete(rvdseq);
+    array_delete(rvd_seq);
 
   }
 
