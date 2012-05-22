@@ -207,6 +207,7 @@ void logger(FILE* log_file, char* message, ...) {
 void create_options_string(char *options_str, char *rvd_str, Hashmap *prog_kwargs) {
 
   char cutoff_str[32];
+  char rvds_eq_str[64];
 
   double cutoff = *((double *) hashmap_get(prog_kwargs, "cutoff"));
   int forward_only = *((int *) hashmap_get(prog_kwargs, "forward_only"));
@@ -231,7 +232,10 @@ void create_options_string(char *options_str, char *rvd_str, Hashmap *prog_kwarg
   sprintf(cutoff_str, ", cutoff = %.2lf, ", cutoff);
   strcat(options_str, cutoff_str);
 
-  sprintf(options_str, "RVDS = %s", rvd_str);
+  sprintf(rvds_eq_str, "rvd_sequence = %s", rvd_str);
+  strcat(options_str, rvds_eq_str);
+
+  strcat(options_str, "\n");
 
 }
 
@@ -266,6 +270,8 @@ int print_results(Array *results, Array *rvd_seq, Hashmap *prog_kwargs, double b
 
   char *source_str = "TALESF";
   char options_str[512];
+
+  *options_str = '\0';
 
   int num_rvds = array_size(rvd_seq);
   char *plus_strand_sequence;
