@@ -1,3 +1,11 @@
+/*
+
+Copyright (c) 2011-2012, Daniel S. Standage <daniel.standage@gmail.com> and
+Erin Doyle <edoyle@iastate.edu> with modifications by Nick Booher <njbooher@gmail.com>.
+See README for license details.
+
+*/
+
 // System libraries
 #include <getopt.h>
 #include <math.h>
