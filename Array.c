@@ -38,3 +38,22 @@ size_t array_size(Array *r)
 {
   return r->usage;
 }
+
+Array *array_concat(Array *first, Array *second)
+{
+
+  Array *joined = array_new();
+
+  for(int i = 0; i < array_size(first); i++)
+  {
+    array_add(joined, array_get(first, i));
+  }
+
+  for(int i = 0; i < array_size(second); i++)
+  {
+    array_add(joined, array_get(second, i));
+  }
+
+  return joined;
+
+}

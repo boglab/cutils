@@ -29,4 +29,6 @@ Array *array_new();
 // Determine the number of elements in the array
 size_t array_size(Array *r);
 
+Array *array_concat(Array *first, Array *second);
+
 #endif
