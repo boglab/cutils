@@ -32,6 +32,8 @@ typedef struct
   unsigned long indexes[2];
   double scores[2];
   int spacer_length;
+  int f_idx;
+  int r_idx;
 } BindingSite;
 
 Hashmap *talesf_kwargs;
@@ -257,6 +259,20 @@ Array *rvd_string_to_array(char *rvd_string) {
 
 }
 
+void str_replace(char *haystack, char *needle, char *replacement) {
+
+  char *pos = strstr(haystack, needle);
+
+  while (pos != NULL) {
+
+    strcpy(pos, replacement);
+    pos = strstr(haystack, needle);
+
+  }
+
+}
+
+
 /*
  * Core
  */
@@ -266,220 +282,269 @@ int binding_site_compare_score(const void * a, const void * b)
   BindingSite *real_a = *((BindingSite **)a);
   BindingSite *real_b = *((BindingSite **)b);
 
-  double real_a_score = floorf(real_a->score * 100 + 0.5) / 100;
-  double real_b_score = floorf(real_b->score * 100 + 0.5) / 100;
+  int str_cmp_result = strcmp(real_a->sequence_name, real_b->sequence_name);
 
-  double score_diff = (real_a_score - real_b_score);
+  if (str_cmp_result != 0) {
 
-  if(score_diff < 0) {
-    return -1;
-  } else if(score_diff > 0) {
-    return 1;
+    return str_cmp_result;
+
   } else {
-    return 0;
+
+    double real_a_score = floorf(real_a->scores[0] * 100 + 0.5) / 100;
+    double real_b_score = floorf(real_b->scores[0] * 100 + 0.5) / 100;
+
+    double score_diff = (real_a_score - real_b_score);
+
+    if(score_diff < 0) {
+      return -1;
+    } else if(score_diff > 0) {
+      return 1;
+    } else {
+
+      double real_a_score2 = floorf(real_a->scores[1] * 100 + 0.5) / 100;
+      double real_b_score2 = floorf(real_b->scores[1] * 100 + 0.5) / 100;
+      double score_diff2 = (real_a_score2 - real_b_score2);
+
+      if(score_diff2 < 0) {
+        return -1;
+      } else if(score_diff2 > 0) {
+        return 1;
+      } else {
+        return 0;
+      }
+
+    }
+
   }
 
 }
 
-int print_results(Array *results, Array *rvd_seq, double best_score, FILE *log_file) {
+int binding_site_compare_pos(const void * a, const void * b)
+{
 
-  int forward_only = *((int *) hashmap_get(talesf_kwargs, "forward_only"));
-  char *organism_name = hashmap_get(talesf_kwargs, "organism_name");
+  BindingSite *real_a = *((BindingSite **)a);
+  BindingSite *real_b = *((BindingSite **)b);
+
+  int str_cmp_result = strcmp(real_a->sequence_name, real_b->sequence_name);
+
+  if (str_cmp_result != 0) {
+
+    return str_cmp_result;
+
+  } else {
+
+    long pos_diff = real_a->indexes[0] - real_b->indexes[0];
+
+    if (pos_diff < 0) {
+      return -1;
+    } else if (pos_diff > 0) {
+      return 1;
+    } else {
+
+      long pos_diff2 = real_a->indexes[1] - real_b->indexes[1];
+
+      if (pos_diff2 < 0) {
+        return -1;
+      } else if (pos_diff2 > 0) {
+        return 1;
+      } else {
+        return 0;
+      }
+
+    }
+
+  }
+
+}
+
+int print_results(Array *results, Array **rvd_seqs, double best_score, FILE *log_file) {
+
   char *output_filepath = hashmap_get(talesf_kwargs, "output_filepath");
 
-  char *source_str = "TALESF";
   char options_str[512];
 
   // strcat doesn't seem to work unless you do this
   *options_str = '\0';
 
-  int num_rvds = array_size(rvd_seq);
-  char *plus_strand_sequence;
-  FILE *gff_out_file = NULL;
   FILE *tab_out_file = NULL;
-  FILE *genome_browser_file = NULL;
 
   size_t output_filepath_length;
   char* temp_output_filepath;
 
-  char *rvd_str = calloc(3 * num_rvds, sizeof(char));
+  char *rvd_string_printable = strdup(hashmap_get(talesf_kwargs, "rvd_string"));
+  str_replace(rvd_string_printable, " ", "_");
 
-  int is_genome = (*organism_name != '\0');
-  int genome_using_gbrowse = (is_genome && (strcmp(organism_name, "oryza_sativa") == 0 || strcmp(organism_name, "arabidopsis_thaliana") == 0));
+  char *rvd_string2_printable = strdup(hashmap_get(talesf_kwargs, "rvd_string2"));
+  str_replace(rvd_string2_printable, " ", "_");
 
-  int i;
+  //create_options_string(options_str, rvd_str);
 
-  for(i = 0; i < num_rvds; i++)
-  {
-    char *rvd = array_get(rvd_seq, i);
-    if(i == 0)
-      strncpy(rvd_str, rvd, 2);
-    else
-      sprintf(rvd_str + (i*3)-1, "_%s", rvd);
-  }
-  rvd_str[3*num_rvds - 1] = '\0';
+  output_filepath_length = strlen(output_filepath) + 5;
+  temp_output_filepath = calloc(output_filepath_length + 1, sizeof(char));
 
-  create_options_string(options_str, rvd_str);
+  sprintf(temp_output_filepath, "%s.txt", output_filepath);
+  tab_out_file = fopen(temp_output_filepath, "w");
 
-  if(output_filepath == NULL) {
+  free(temp_output_filepath);
 
-    gff_out_file = stdout;
-
-  } else {
-
-
-    output_filepath_length = strlen(output_filepath) + 5;
-    temp_output_filepath = calloc(output_filepath_length + 1, sizeof(char));
-
-    sprintf(temp_output_filepath, "%s.txt", output_filepath);
-    tab_out_file = fopen(temp_output_filepath, "w");
-    memset(temp_output_filepath, '\0', output_filepath_length);
-    sprintf(temp_output_filepath, "%s.gff3", output_filepath);
-    gff_out_file = fopen(temp_output_filepath, "w");
-
-    if(is_genome) {
-      memset(temp_output_filepath, '\0', output_filepath_length);
-
-      if(genome_using_gbrowse) {
-        sprintf(temp_output_filepath, "%s.gff", output_filepath);
-      } else {
-        sprintf(temp_output_filepath, "%s.bed", output_filepath);
-      }
-
-      genome_browser_file = fopen(temp_output_filepath, "w");
-
-
-    }
-
-    free(temp_output_filepath);
-
-  }
-
-  if(!gff_out_file || !tab_out_file || (is_genome && !genome_browser_file))
-  {
+  if(!tab_out_file) {
     fprintf(log_file, "Error: unable to open output file '%s'\n", output_filepath);
     return 1;
   }
 
-  // Tab file header
-  if (forward_only)
-  {
-    fprintf(tab_out_file, "table_ignores:Plus strand sequence\n");
-  }
-
-  fprintf(tab_out_file, options_str);
+  //fprintf(tab_out_file, options_str);
 
   fprintf(tab_out_file, "Best Possible Score:%.2lf\n", best_score);
-  fprintf(tab_out_file, "Sequence Name\tStrand\tScore\tStart Position\tTarget Sequence\tPlus strand sequence\n");
+  fprintf(tab_out_file, "Sequence Name\tTAL 1\tTAL 2\tTAL 1 Score\tTAL 2 Score\tTAL 1 Start\tTAL 2 Start\tSpacer Length\tTAL 1 Target\tTAL 2 Target\n");
 
-  // GFF file header
-  fprintf(gff_out_file, "##gff-version 3\n");
+  int tal2_seq_len = array_size(rvd_seqs[1]) + 2;
+  char *tal2_sequence = calloc(tal2_seq_len + 1, sizeof(char));
 
-  if (forward_only)
-  {
-    fprintf(gff_out_file, "#table_display_tags:target_sequence\n");
-  }
-  else
-  {
-    fprintf(gff_out_file, "#table_display_tags:target_sequence,plus_strand_sequence\n");
-  }
-
-  fprintf(gff_out_file, "#%s", options_str);
-
-  fprintf(gff_out_file, "#Best Possible Score:%.2lf\n", best_score);
-
-  // bed file header
-
-  if(genome_using_gbrowse) {
-    fprintf(genome_browser_file, "##gff-version 3\n");
-  }
-  else if(is_genome) {
-    fprintf(genome_browser_file, "track name=\"TAL Targets\" description=\"Targets for RVD sequence %s\" visibility=2 useScore=1\n", rvd_str);
-  }
-
-  for(i = 0; i < array_size(results); i++)
+  for(unsigned long i = 0; i < array_size(results); i++)
   {
 
-    BindingSite *site = (BindingSite *)array_get(results, i);
-    char *sequence = site->sequence;
-    char strand = '+';
-    char *tab_strand = "Plus";
+    BindingSite *site = (BindingSite *) array_get(results, i);
 
-    if(site->strand > 0)
-      plus_strand_sequence = sequence;
-    else
+    char tal1_name[16];
+    char tal2_name[16];
+
+    sprintf(tal1_name, "TAL%d", site->f_idx + 1);
+    sprintf(tal2_name, "TAL%d", site->r_idx + 1);
+
+    for(int j = 0; j < tal2_seq_len; j++)
     {
-      int j;
-      int seq_len = num_rvds + 2;
-
-
-      plus_strand_sequence = sequence;
-      sequence = malloc(sizeof(char)*(seq_len+1));
-      sequence[seq_len] = '\0';
-
-      for(j = 0; j < seq_len; j++)
+      char base = site->sequence[1][tal2_seq_len - j - 1];
+      if(base == 'A' || base == 'a')
+        tal2_sequence[j] = 'T';
+      else if(base == 'C' || base == 'c')
+        tal2_sequence[j] = 'G';
+      else if(base == 'G' || base == 'g')
+        tal2_sequence[j] = 'C';
+      else if(base == 'T' || base == 't')
+        tal2_sequence[j] = 'A';
+      else if(base == ' ')
+        tal2_sequence[j] = ' ';
+      else
       {
-        char base = site->sequence[seq_len - j - 1];
-        if(base == 'A' || base == 'a')
-          sequence[j] = 'T';
-        else if(base == 'C' || base == 'c')
-          sequence[j] = 'G';
-        else if(base == 'G' || base == 'g')
-          sequence[j] = 'C';
-        else if(base == 'T' || base == 't')
-          sequence[j] = 'A';
-        else if(base == ' ')
-          sequence[j] = ' ';
-        else
-        {
-          fprintf(stderr, "Error: unexpected character '%c'\n", base);
-          exit(1);
-        }
+        fprintf(stderr, "Error: unexpected character '%c'\n", base);
+        exit(1);
       }
-      strand = '-';
-      tab_strand = "Minus";
     }
 
-    fprintf( tab_out_file, "%s\t%s\t%.2lf\t%lu\t%s\t%s\n",
-             site->sequence_name, tab_strand, site->score, site->index + 1, sequence, plus_strand_sequence);
+    fprintf( tab_out_file, "%s\t%s\t%s\t%.2lf\t%.2lf\t%lu\t%lu\t%d\t%s\t%s\n",
+             site->sequence_name, tal1_name, tal2_name, site->scores[0], site->scores[1], site->indexes[0], site->indexes[1], site->spacer_length, site->sequence[0], tal2_sequence);
 
-    fprintf( gff_out_file, "%s\t%s\t%s\t%lu\t%lu\t%.2lf\t%c\t.\trvd_sequence=%s;target_sequence=%s;plus_strand_sequence=%s;\n",
-             site->sequence_name, source_str, "TAL_effector_binding_site", site->index + 1,
-             site->index + num_rvds, site->score, strand, rvd_str, sequence, plus_strand_sequence);
-
-    if(is_genome && i < 10000) {
-
-      if(genome_using_gbrowse) {
-
-        fprintf( genome_browser_file, "chr%s\t%s\t%s\t%lu\t%lu\t%.2lf\t%c\t.\tName=site%d;\n",
-                 site->sequence_name, source_str, "TAL_effector_binding_site", site->index + 1,
-                 site->index + num_rvds, site->score, strand, i);
-
-      } else {
-
-        int bed_score = floorf((best_score / site->score * 1000) + 0.5);
-        fprintf( genome_browser_file,"%s\t%lu\t%lu\tsite%d\t%d\t%c\n",
-                 site->sequence_name, site->index, site->index + num_rvds - 1, i, bed_score, strand);
-
-      }
-
-    }
-
-    if(plus_strand_sequence != sequence) {
-      free(sequence);
-    }
 
   }
 
-  free(rvd_str);
-  fclose(gff_out_file);
+  free(tal2_sequence);
   fclose(tab_out_file);
 
-  if(is_genome) {
-    fclose(genome_browser_file);
-  }
-
   return 0;
+
+}
+
+double score_binding_site(kseq_t *seq, unsigned long i, Array *rvd_seq, Hashmap *diresidue_scores, double cutoff, int reverse) {
+
+    double total_score = 0.0;
+
+    if (!reverse) {
+
+      for(unsigned long j = 0; j < array_size(rvd_seq); j++) {
+
+        char *rvd = array_get(rvd_seq, j);
+        double *scores = hashmap_get(diresidue_scores, rvd);
+
+        if(seq->seq.s[i+j] == 'A' || seq->seq.s[i+j] == 'a')
+          total_score += scores[0];
+        else if(seq->seq.s[i+j] == 'C' || seq->seq.s[i+j] == 'c')
+          total_score += scores[1];
+        else if(seq->seq.s[i+j] == 'G' || seq->seq.s[i+j] == 'g')
+          total_score += scores[2];
+        else if(seq->seq.s[i+j] == 'T' || seq->seq.s[i+j] == 't')
+          total_score += scores[3];
+        else
+          total_score += cutoff + 1;
+
+        if(total_score > cutoff)
+          break;
+
+      }
+
+    } else {
+
+      for(unsigned long j = 0; j < array_size(rvd_seq); j++) {
+
+        char *rvd = array_get(rvd_seq, array_size(rvd_seq) - j - 1);
+        double *scores = hashmap_get(diresidue_scores, rvd);
+
+        if(seq->seq.s[i+j] == 'A' || seq->seq.s[i+j-1] == 'a')
+          total_score += scores[3];
+        else if(seq->seq.s[i+j] == 'C' || seq->seq.s[i+j-1] == 'c')
+          total_score += scores[2];
+        else if(seq->seq.s[i+j] == 'G' || seq->seq.s[i+j-1] == 'g')
+          total_score += scores[1];
+        else if(seq->seq.s[i+j] == 'T' || seq->seq.s[i+j-1] == 't')
+          total_score += scores[0];
+        else
+          total_score += cutoff + 1;
+
+        if(total_score > cutoff)
+          break;
+        }
+
+    }
+
+    return total_score;
+
+}
+
+BindingSite *create_binding_site(kseq_t *seq, unsigned long i, unsigned long j, int num_forward_rvds, double forward_score, int num_reverse_rvds, double reverse_score, int spacer_size, int f_idx, int r_idx) {
+
+  int seq_name_len = strlen(seq->name.s);
+
+  BindingSite *site = malloc(sizeof(BindingSite));
+
+  site->sequence_name = calloc(seq_name_len + 1, sizeof(char));
+  site->sequence_name[seq_name_len] = '\0';
+  strncpy(site->sequence_name, seq->name.s, seq_name_len);
+
+  site->spacer_length = spacer_size;
+
+  site->f_idx = f_idx;
+  site->r_idx = r_idx;
+
+  // Plus
+
+  site->indexes[0] = i;
+
+  site->sequence[0] = calloc(num_forward_rvds + 2 + 1, sizeof(char));
+  site->sequence[0][num_forward_rvds + 2] = '\0';
+
+  strncpy(site->sequence[0], seq->seq.s + i - 1, 1);
+
+  // Upstream
+  site->sequence[0][1] = ' ';
+  strncpy(site->sequence[0] + 2, seq->seq.s + i, num_forward_rvds);
+
+  site->scores[0] = forward_score;
+
+  // Minus
+
+  site->indexes[1] = j;
+
+  site->sequence[1] = calloc(num_reverse_rvds + 2 + 1, sizeof(char));
+  site->sequence[1][num_reverse_rvds + 2] = '\0';
+
+  strncpy(site->sequence[1], seq->seq.s + j - num_reverse_rvds + 1, num_reverse_rvds);
+
+  // Upstream
+  site->sequence[1][num_reverse_rvds] = ' ';
+  strncpy(site->sequence[1] + num_reverse_rvds + 1, seq->seq.s + j + 1, 1);
+
+  site->scores[1] = reverse_score;
+
+  return site;
 
 }
 
@@ -532,7 +597,7 @@ void find_binding_sites(kseq_t *seq, Array **rvd_seqs, Hashmap *diresidue_scores
                  
                  if (reverse_score <= reverse_cutoff) {
                      
-                   BindingSite *site = create_binding_site(seq, i, j, num_forward_rvds, forward_score, num_reverse_rvds, reverse_score, spacer_size);
+                   BindingSite *site = create_binding_site(seq, i, j, num_forward_rvds, forward_score, num_reverse_rvds, reverse_score, spacer_size, f_idx, r_idx);
                    
                    #pragma omp critical (add_result)
                    array_add(results, site);
@@ -552,107 +617,6 @@ void find_binding_sites(kseq_t *seq, Array **rvd_seqs, Hashmap *diresidue_scores
     }
     
   }
-
-}
-
-double score_binding_site(kseq_t *seq, unsigned long i, Array *rvd_seq, Hashmap *diresidue_scores, double cutoff, int reverse) {
-
-    double total_score = 0.0;
-
-    if (!reverse) {
-
-      for(unsigned long j = 0; j < array_size(rvd_seq); j++) {
-
-        char *rvd = array_get(rvd_seq, j);
-        double *scores = hashmap_get(diresidue_scores, rvd);
-
-        if(seq->seq.s[i+j] == 'A' || seq->seq.s[i+j] == 'a')
-          total_score += scores[0];
-        else if(seq->seq.s[i+j] == 'C' || seq->seq.s[i+j] == 'c')
-          total_score += scores[1];
-        else if(seq->seq.s[i+j] == 'G' || seq->seq.s[i+j] == 'g')
-          total_score += scores[2];
-        else if(seq->seq.s[i+j] == 'T' || seq->seq.s[i+j] == 't')
-          total_score += scores[3];
-        else
-          total_score += cutoff + 1;
-
-        if(total_score > cutoff)
-          break;
-
-      }
-
-    } else {
-
-      for(unsigned long j = 0; j < array_size(rvd_seq); j++) {
-
-        char *rvd = array_get(rvd_seq, array_size(rvd_seq) - j - 1);
-        double *scores = hashmap_get(diresidue_scores, rvd);
-
-        if(seq->seq.s[i+j-1] == 'A' || seq->seq.s[i+j-1] == 'a')
-          total_score += scores[3];
-        else if(seq->seq.s[i+j-1] == 'C' || seq->seq.s[i+j-1] == 'c')
-          total_score += scores[2];
-        else if(seq->seq.s[i+j-1] == 'G' || seq->seq.s[i+j-1] == 'g')
-          total_score += scores[1];
-        else if(seq->seq.s[i+j-1] == 'T' || seq->seq.s[i+j-1] == 't')
-          total_score += scores[0];
-        else
-          total_score += cutoff + 1;
-
-        if(total_score > cutoff)
-          break;
-        }
-
-    }
-
-    return total_score;
-
-}
-
-BindingSite *create_binding_site(kseq_t *seq, unsigned long i, unsigned long j, int num_forward_rvds, double forward_score, int num_reverse_rvds, double reverse_score, int spacer_size) {
-
-  int seq_name_len = strlen(seq->name.s);
-  
-  BindingSite *site = malloc(sizeof(BindingSite));
-
-  site->sequence_name = calloc(seq_name_len + 1, sizeof(char));
-  site->sequence_name[seq_name_len] = '\0';
-  strncpy(site->sequence_name, seq->name.s, seq_name_len);
-  
-  site->spacer_length = spacer_size;
-  
-  // Plus
-  
-  site->indexes[0] = i;
-  
-  site->sequence[0] = calloc(num_forward_rvds + 2 + 1, sizeof(char));
-  site->sequence[0][num_forward_rvds + 2] = '\0';
-  
-  strncpy(site->sequence[0], seq->seq.s + i - 1, 1);
-  
-  // Upstream
-  site->sequence[0][1] = ' ';
-  strncpy(site->sequence[0] + 2, seq->seq.s + i, num_forward_rvds);
-  
-  site->scores[0] = forward_score;
-  
-  // Minus
-  
-  site->indexes[1] = j;
-  
-  site->sequence[1] = calloc(num_reverse_rvds + 2 + 1, sizeof(char));
-  site->sequence[1][num_reverse_rvds + 2] = '\0';
-  
-  strncpy(site->sequence[1], seq->seq.s + j - num_reverse_rvds + 1, num_reverse_rvds);
-  
-  // Upstream
-  site->sequence[1][num_reverse_rvds] = ' ';
-  strncpy(site->sequence[1] + num_reverse_rvds + 1, seq->seq.s + j + 1, 1);
-  
-  site->scores[0] = reverse_score;
-  
-  return site;
 
 }
 
@@ -776,9 +740,9 @@ int run_talesf_task(Hashmap *kwargs) {
 
   if(!abort) {
 
-    qsort(results->data, array_size(results), sizeof(BindingSite *), binding_site_compare_score);
+    qsort(results->data, array_size(results), sizeof(BindingSite *), binding_site_compare_pos);
 
-    abort = print_results(results, rvd_seq, best_score, log_file);
+    abort = print_results(results, rvd_seqs, best_score, log_file);
 
     logger(log_file, "Finished");
 
@@ -790,9 +754,10 @@ int run_talesf_task(Hashmap *kwargs) {
 
     for(i = 0; i < array_size(results); i++)
     {
-      BindingSite *site = (BindingSite *)array_get(results, i);
+      BindingSite *site = (BindingSite *) array_get(results, i);
 
-      free(site->sequence);
+      free(site->sequence[0]);
+      free(site->sequence[1]);
       free(site->sequence_name);
       free(site);
 
