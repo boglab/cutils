@@ -643,17 +643,35 @@ int run_talesf_task(Hashmap *kwargs) {
 
   int numprocs = *((int *) hashmap_get(kwargs, "num_procs"));
 
-  // Program variable domain
-  char cmd[256], line[32];
-  gzFile seqfile;
-  kseq_t *seq;
-  int i, j, seq_num;
+  // Setup the logger
 
   FILE *log_file = stdout;
 
   if(log_filepath && strcmp(log_filepath, "NA") != 0) {
     log_file = fopen(log_filepath, "a");
   }
+
+  // Determine number of sequences in the input file
+
+  int seq_num;
+  char cmd[256], line[32];
+
+  sprintf(cmd, "grep '^>' %s | wc -l", seq_filename);
+  FILE *fasta_filesize_in = popen(cmd, "r");
+
+  if(!fasta_filesize_in)
+  {
+    perror("Error: unable to check fasta file size\n");
+    logger(log_file, "Error: unable to check fasta file size");
+    if(log_file != stdout) fclose(log_file);
+    return 1;
+  }
+
+  fgets(line, sizeof(line), fasta_filesize_in);
+  pclose(fasta_filesize_in);
+  seq_num = atoi(line);
+
+  // Process RVD sequences
 
   Array *results = array_new( sizeof(BindingSite *) );
 
@@ -668,42 +686,35 @@ int run_talesf_task(Hashmap *kwargs) {
   Array *joined_rvd_seq = array_concat(rvd_seq, rvd_seq2);
 
   // Get RVD/bp matching scores
+
   Hashmap *diresidue_probabilities = get_diresidue_probabilities(joined_rvd_seq, weight);
   Hashmap *diresidue_scores = convert_probabilities_to_scores(diresidue_probabilities);
   hashmap_delete(diresidue_probabilities, NULL);
 
   // Compute optimal score for the RVD sequences
+
   double best_score = get_best_score(rvd_seq, diresidue_scores);
   double best_score2 = get_best_score(rvd_seq2, diresidue_scores);
   
+  // Define score cutoffs for match sites
+
   double cutoffs[2];
   
   cutoffs[0] = cutoff * best_score;
   cutoffs[1] = cutoff * best_score2;
-
-  // Determine number of sequences in file
-  sprintf(cmd, "grep '^>' %s | wc -l", seq_filename);
-  FILE *in = popen(cmd, "r");
-  if(!in)
-  {
-    perror("Error: unable to check fasta file size\n");
-    logger(log_file, "Error: unable to check fasta file size");
-    return 1;
-  }
-  fgets(line, sizeof(line), in);
-  pclose(in);
-  seq_num = atoi(line);
 
   // Begin processing
 
   int abort = 0;
 
   omp_set_num_threads(numprocs);
-  #pragma omp parallel private(i, j, seq, seqfile)
+
+  #pragma omp parallel
   {
 
-    // Open genomic sequence file
-    seqfile = gzopen(seq_filename, "r");
+    // Open sequence file
+    gzFile seqfile = gzopen(seq_filename, "r");
+
     if(!seqfile)
     {
 
@@ -712,15 +723,17 @@ int run_talesf_task(Hashmap *kwargs) {
 
     } else {
 
-      seq = kseq_init(seqfile);
+      kseq_t *seq = kseq_init(seqfile);
 
-      j = 0;
+      int j = 0;
+
       #pragma omp for schedule(static)
-      for(i = 0; i < seq_num; i++)
+      for(int i = 0; i < seq_num; i++)
       {
 
         #pragma omp flush (abort)
         if (!abort) {
+
           while(j <= i)
           {
             int result = kseq_read(seq);
@@ -732,8 +745,10 @@ int run_talesf_task(Hashmap *kwargs) {
             j++;
           }
 
-          logger(log_file, "Scanning %s for binding sites (length %ld)", seq->name.s, seq->seq.l);
-          find_binding_sites(seq, rvd_seqs, diresidue_scores, cutoffs, results);
+          if (!abort) {
+            logger(log_file, "Scanning %s for binding sites (length %ld)", seq->name.s, seq->seq.l);
+            find_binding_sites(seq, rvd_seqs, diresidue_scores, cutoffs, results);
+          }
 
         }
 
@@ -760,8 +775,9 @@ int run_talesf_task(Hashmap *kwargs) {
 
   if(results) {
 
-    for(i = 0; i < array_size(results); i++)
+    for(int i = 0; i < array_size(results); i++)
     {
+
       BindingSite *site = (BindingSite *) array_get(results, i);
 
       free(site->sequence[0]);
@@ -771,22 +787,21 @@ int run_talesf_task(Hashmap *kwargs) {
 
     }
 
-    array_delete(results);
+    array_delete(results, NULL);
 
   }
 
 
   if(rvd_seq) {
+    array_delete(rvd_seq, free);
+  }
 
-    for(i = 0; i < array_size(rvd_seq); i++)
-    {
-      char *temp = (char *)array_get(rvd_seq, i);
-      free(temp);
-    }
+  if(rvd_seq2) {
+    array_delete(rvd_seq2, free);
+  }
 
-
-    array_delete(rvd_seq);
-
+  if(joined_rvd_seq) {
+    array_delete(joined_rvd_seq, NULL);
   }
 
   if(diresidue_scores) {

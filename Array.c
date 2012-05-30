@@ -10,8 +10,17 @@ void array_add(Array *r, void *e)
   r->data[r->usage++] = e;
 }
 
-void array_delete(Array *r)
+void array_delete(Array *r, void (*valuefreefunc)(void *))
 {
+
+  if(valuefreefunc != NULL)
+  {
+    for(int i = 0; i < array_size(r); i++)
+    {
+      valuefreefunc(array_get(r, i));
+    }
+  }
+
   free(r->data);
   r->data = NULL;
   r->capacity = r->usage = 0;

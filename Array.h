@@ -18,7 +18,7 @@ typedef struct
 void array_add(Array *r, void *e);
 
 // Destructor: free the memory previously used by the array
-void array_delete(Array *r);
+void array_delete(Array *r, void (*valuefreefunc)(void *));
 
 // Get the element at the requested index
 void *array_get(Array *r, int index);
