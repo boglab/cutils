@@ -557,16 +557,18 @@ BindingSite *create_binding_site(kseq_t *seq, unsigned long i, unsigned long j, 
 }
 
 // Identify and print out TAL effector binding sites
-void find_binding_sites(kseq_t *seq, Array **rvd_seqs, Hashmap *diresidue_scores, double *cutoffs, Array *results) {
-  
+void find_binding_sites(FILE *log_file, kseq_t *seq, Array **rvd_seqs, Hashmap *diresidue_scores, double *cutoffs, Array *results) {
+
   int c_upstream = *((int *) hashmap_get(talesf_kwargs, "c_upstream"));
   int spacer_min = *((int *) hashmap_get(talesf_kwargs, "spacer_min"));
   int spacer_max = *((int *) hashmap_get(talesf_kwargs, "spacer_max"));
 
-//  if(num_forward_rvds > seq->seq.l) {
-//    fprintf(stderr, "Warning: skipping sequence '%s' since it is shorter than the RVD sequence\n", seq->seq.s);
-//    return;
-//  }
+  if (array_size(rvd_seqs[0]) + array_size(rvd_seqs[0]) + spacer_min > seq->seq.l) {
+    logger(log_file, "Warning: skipping sequence '%s' since it is shorter than the RVD sequence\n", seq->seq.s);
+    return;
+  }
+
+  logger(log_file, "Scanning %s for binding sites (length %ld)", seq->name.s, seq->seq.l);
 
   for (int f_idx = 0; f_idx < 2; f_idx++) {
     
@@ -746,8 +748,7 @@ int run_talesf_task(Hashmap *kwargs) {
           }
 
           if (!abort) {
-            logger(log_file, "Scanning %s for binding sites (length %ld)", seq->name.s, seq->seq.l);
-            find_binding_sites(seq, rvd_seqs, diresidue_scores, cutoffs, results);
+            find_binding_sites(log_file, seq, rvd_seqs, diresidue_scores, cutoffs, results);
           }
 
         }
