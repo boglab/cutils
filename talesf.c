@@ -326,22 +326,29 @@ int binding_site_compare_pos(const void * a, const void * b)
   BindingSite *real_b = *((BindingSite **)b);
 
   int str_cmp_result = strcmp(real_a->sequence_name, real_b->sequence_name);
+  long pos_diff = real_a->indexes[0] - real_b->indexes[0];
+  long pos_diff2 = real_a->indexes[1] - real_b->indexes[1];
 
   if (str_cmp_result != 0) {
 
     return str_cmp_result;
 
-  } else {
+  }
+  else if (real_a->f_idx < real_b->f_idx) {
 
-    long pos_diff = real_a->indexes[0] - real_b->indexes[0];
+    return -1;
+
+  } else if (real_a->r_idx < real_b->r_idx) {
+
+    return -1;
+
+  } else {
 
     if (pos_diff < 0) {
       return -1;
     } else if (pos_diff > 0) {
       return 1;
     } else {
-
-      long pos_diff2 = real_a->indexes[1] - real_b->indexes[1];
 
       if (pos_diff2 < 0) {
         return -1;
@@ -357,7 +364,7 @@ int binding_site_compare_pos(const void * a, const void * b)
 
 }
 
-int print_results(Array *results, Array **rvd_seqs, double best_score, FILE *log_file) {
+int print_results(Array *results, Array **rvd_seqs, double best_score, double best_score2, FILE *log_file) {
 
   char *output_filepath = hashmap_get(talesf_kwargs, "output_filepath");
 
@@ -394,7 +401,8 @@ int print_results(Array *results, Array **rvd_seqs, double best_score, FILE *log
 
   //fprintf(tab_out_file, options_str);
 
-  fprintf(tab_out_file, "Best Possible Score:%.2lf\n", best_score);
+  fprintf(tab_out_file, "TAL1 Best Possible Score:%.2lf\n", best_score);
+  fprintf(tab_out_file, "TAL2 Best Possible Score:%.2lf\n", best_score2);
   fprintf(tab_out_file, "Sequence Name\tTAL 1\tTAL 2\tTAL 1 Score\tTAL 2 Score\tTAL 1 Start\tTAL 2 Start\tSpacer Length\tTAL 1 Target\tTAL 2 Target\n");
 
   int tal2_seq_len = array_size(rvd_seqs[1]) + 2;
@@ -742,7 +750,7 @@ int run_talesf_task(Hashmap *kwargs) {
 
     qsort(results->data, array_size(results), sizeof(BindingSite *), binding_site_compare_pos);
 
-    abort = print_results(results, rvd_seqs, best_score, log_file);
+    abort = print_results(results, rvd_seqs, best_score, best_score2, log_file);
 
     logger(log_file, "Finished");
 
