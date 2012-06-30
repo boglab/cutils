@@ -1,8 +1,8 @@
 // Implementation extends hashtable description at
 // http://www.sparknotes.com/cs/searching/hashmaps/section3.rhtml
 
-#ifndef OTFS_HASHMAP
-#define OTFS_HASHMAP
+#ifndef BCUTILS_HASHMAP
+#define BCUTILS_HASHMAP
 
 #include <stdlib.h>
 #include <string.h>

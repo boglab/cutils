@@ -1,5 +1,5 @@
-#ifndef OTFS_ARRAY
-#define OTFS_ARRAY
+#ifndef BCUTILS_ARRAY
+#define BCUTILS_ARRAY
 
 #include <assert.h>
 #include <stdlib.h>
