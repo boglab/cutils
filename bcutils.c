@@ -1,3 +1,8 @@
+#include <stdio.h>
+#include <stdarg.h>
+#include <time.h>
+#include <math.h>
+
 #include "bcutils.h"
 
 double *double_array(double a, double c, double g, double t, double dummy) {
@@ -160,8 +165,11 @@ Array *rvd_string_to_array(char *rvd_string) {
   char *tok;
   Array *rvd_seq;
 
+  // strtok screws up the rvd string
+  char *mutable_rvd_string = strdup(rvd_string);
+
   rvd_seq = array_new( sizeof(char *) );
-  tok = strtok(rvd_string, " _");
+  tok = strtok(mutable_rvd_string, " _");
 
   while (tok != NULL)
   {
@@ -169,6 +177,8 @@ Array *rvd_string_to_array(char *rvd_string) {
     array_add(rvd_seq, r);
     tok = strtok(NULL, " _");
   }
+
+  free(mutable_rvd_string);
 
   return rvd_seq;
 

@@ -1,11 +1,6 @@
 #ifndef BCUTILS_BCUTILS
 #define BCUTILS_BCUTILS
 
-#include <stdio.h>
-#include <stdarg.h>
-#include <time.h>
-#include <math.h>
-
 #include "Array.h"
 #include "Hashmap.h"
 
