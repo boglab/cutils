@@ -49,10 +49,10 @@ Hashmap *get_diresidue_probabilities(Array *rvdseq, double w) {
   hashmap_add(diresidue_counts, "NA", int_array( 0,  0,  1,  0));
   hashmap_add(diresidue_counts, "IG", int_array( 0,  0,  0,  1));
   hashmap_add(diresidue_counts, "H*", int_array( 0,  0,  0,  1));
-
+  hashmap_add(diresidue_counts, "NH", int_array( 0,  0,  1,  0));
+  
   // Add unknown counts
   hashmap_add(diresidue_counts, "S*", int_array(1, 1, 1, 1));
-  hashmap_add(diresidue_counts, "NH", int_array(1, 1, 1, 1));
   hashmap_add(diresidue_counts, "YG", int_array(1, 1, 1, 1));
   hashmap_add(diresidue_counts, "SN", int_array(1, 1, 1, 1));
   hashmap_add(diresidue_counts, "SS", int_array(1, 1, 1, 1));
