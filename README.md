@@ -2,7 +2,7 @@ C utilities used by multiple boglab projects.
 
 # License
 
-All source code included herein is available under an ISC license.
+With the exception of the Kseq library (self-contained in the `kseq.h' file), all source code included herein is available under an ISC license.
 
 Copyright (c) 2011-2012, Daniel S. Standage <daniel.standage@gmail.com> and
 Erin Doyle <edoyle@iastate.edu> with modifications by Nick Booher <njbooher@gmail.com>.
