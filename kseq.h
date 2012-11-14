@@ -106,7 +106,7 @@ typedef struct __kstring_t {
 			}															\
 			if (delimiter == KS_SEP_LINE) { \
 				for (i = ks->begin; i < ks->end; ++i) \
-					if (ks->buf[i] == '\n') break; \
+					if (ks->buf[i] == '\n' || ks->buf[i] == '\r') break; \
 			} else if (delimiter > KS_SEP_MAX) {						\
 				for (i = ks->begin; i < ks->end; ++i)					\
 					if (ks->buf[i] == delimiter) break;					\
