@@ -30,7 +30,7 @@ Hashmap *get_diresidue_probabilities(Array *rvdseq, double w) {
   int i, num_diresidues;
 
   // First, use a hashmap to store counts
-  diresidue_counts = hashmap_new(64);
+  diresidue_counts = hashmap_new(128);
 
   // Add known counts
   // The int_array provides counts in the order A C G T
@@ -68,7 +68,7 @@ Hashmap *get_diresidue_probabilities(Array *rvdseq, double w) {
     }
   }
 
-  diresidue_probabilities = hashmap_new(64);
+  diresidue_probabilities = hashmap_new(128);
   diresidues = hashmap_keys(diresidue_counts);
   num_diresidues = hashmap_size(diresidue_counts);
   for (i = 0; i < num_diresidues; i++)
@@ -94,7 +94,7 @@ Hashmap *get_diresidue_probabilities(Array *rvdseq, double w) {
 Hashmap *convert_probabilities_to_scores(Hashmap *diresidue_probabilities) {
   char **diresidues;
   int i, j, num_diresidues;
-  Hashmap *diresidue_scores = hashmap_new(64);
+  Hashmap *diresidue_scores = hashmap_new(128);
 
   diresidues = hashmap_keys(diresidue_probabilities);
   num_diresidues = hashmap_size(diresidue_probabilities);
